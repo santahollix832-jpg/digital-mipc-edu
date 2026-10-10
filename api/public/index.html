@@ -1,0 +1,1399 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digital MIPC EDU - Smart School Management System</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght=300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        .page-content { display: none; }
+        .page-content.active { display: block; }
+        /* Searchable student dropdown */
+        #perm-student-dropdown li,
+        #fees-student-dropdown li {
+            padding: 8px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid #f1f5f9;
+            transition: background 0.1s;
+        }
+        #perm-student-dropdown li:last-child,
+        #fees-student-dropdown li:last-child { border-bottom: none; }
+        #perm-student-dropdown li:hover { background: #eef2ff; }
+        #fees-student-dropdown li:hover  { background: #f0fdf4; }
+        #perm-student-dropdown li .student-name,
+        #fees-student-dropdown li .student-name  { font-weight: 700; color: #1e293b; display: block; }
+        #perm-student-dropdown li .student-class,
+        #fees-student-dropdown li .student-class { color: #94a3b8; font-size: 10px; }
+    </style>
+</head>
+<body class="bg-[#f8fafc] text-slate-800 min-h-screen flex flex-col md:flex-row">
+
+    <aside class="w-full md:w-64 bg-[#0f172a] text-slate-300 flex flex-col justify-between shrink-0 border-r border-slate-800">
+        <div>
+            <div class="p-6 flex items-center gap-3 border-b border-slate-800">
+                <div class="w-10 h-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white font-black text-xl shadow-lg">
+                    <i class="fa-solid fa-graduation-cap"></i>
+                </div>
+                <div>
+                    <h1 class="text-white font-bold text-sm tracking-tight leading-none">Digital MIPC EDU</h1>
+                    <span class="text-[11px] text-slate-500 font-medium">Smart School System</span>
+                </div>
+            </div>
+
+            <nav class="p-4 space-y-1" id="sidebar-nav">
+                <button onclick="switchPage('dashboard')" id="nav-dashboard" class="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800/50 rounded-xl cursor-pointer transition">
+                    <i class="fa-solid fa-chart-pie w-5 text-center"></i> Dashboard
+                </button>
+                <button onclick="switchPage('students')" id="nav-students" class="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold bg-indigo-600 text-white rounded-xl cursor-pointer transition">
+                    <i class="fa-solid fa-user-graduate w-5 text-center"></i> Students
+                </button>
+                <button onclick="switchPage('permissions')" id="nav-permissions" class="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800/50 rounded-xl cursor-pointer transition">
+                    <i class="fa-solid fa-id-card-clip w-5 text-center"></i> Permissions
+                    <span id="overdue-nav-badge" class="hidden ml-auto bg-rose-500 text-white text-[10px] font-black px-1.5 py-0.5 rounded-full animate-pulse">0</span>
+                </button>
+                <button onclick="switchPage('discipline')" id="nav-discipline" class="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800/50 rounded-xl cursor-pointer transition">
+                    <i class="fa-solid fa-gavel w-5 text-center"></i> Discipline
+                </button>
+                <button onclick="switchPage('fees')" id="nav-fees" class="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800/50 rounded-xl cursor-pointer transition">
+                    <i class="fa-solid fa-money-check-dollar w-5 text-center"></i> School Fees
+                </button>
+                <button onclick="switchPage('staff')" id="nav-staff" class="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800/50 rounded-xl cursor-pointer transition">
+                    <i class="fa-solid fa-user-tie w-5 text-center"></i> Staff
+                </button>
+            </nav>
+        </div>
+
+        <div class="p-4 border-t border-slate-800 bg-[#0b0f19]/40 flex items-center gap-3">
+            <div class="w-10 h-10 bg-slate-700 rounded-full flex items-center justify-center font-bold text-white text-sm">AU</div>
+            <div>
+                <h4 class="text-xs font-bold text-white leading-none">Admin User</h4>
+                <span class="text-[10px] text-slate-500">System Administrator</span>
+            </div>
+        </div>
+    </aside>
+
+    <div class="flex-1 flex flex-col min-w-0">
+        <header class="h-16 bg-white border-b border-slate-200 px-6 flex items-center justify-between sticky top-0 z-40">
+            <h2 class="text-base font-bold text-slate-800" id="page-title">Students Management | Admin</h2>
+            <div class="flex items-center gap-4">
+                <div class="text-xs font-semibold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg"><span id="system-date">Loading...</span></div>
+                <div class="text-xs font-bold text-slate-700 bg-indigo-50 px-3 py-1.5 rounded-lg"><span id="live-clock">--:--:--</span></div>
+            </div>
+        </header>
+
+        <main class="p-6 max-w-7xl w-full mx-auto space-y-4">
+            
+            <div id="overdue-notification-banner" class="hidden bg-rose-50 border border-rose-200 p-4 rounded-xl flex items-center justify-between shadow-sm">
+                <div class="flex items-center gap-3 text-rose-800">
+                    <div class="w-8 h-8 bg-rose-600 text-white rounded-full flex items-center justify-center animate-pulse"><i class="fa-solid fa-bell"></i></div>
+                    <div>
+                        <h4 class="text-xs font-bold">ITABAZA: Hari abanyeshuri barengeje igihe cy'uruhushya!</h4>
+                        <p class="text-[11px] text-rose-600 font-medium">Reba mu gice cy'abarengeje igihe ukwabo maze ubafate.</p>
+                    </div>
+                </div>
+                <button onclick="switchPage('permissions')" class="text-xs font-black text-rose-700 underline cursor-pointer">Reba impushya</button>
+            </div>
+
+            <div id="page-dashboard" class="page-content space-y-6">
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200 flex items-center justify-between shadow-xs">
+                        <div><span class="text-slate-400 text-xs font-bold uppercase block">Total Students</span><span id="stat-total" class="text-2xl font-black">--</span></div>
+                        <div class="w-12 h-12 bg-indigo-50 text-indigo-600 rounded-xl flex items-center justify-center"><i class="fa-solid fa-user-graduate"></i></div>
+                    </div>
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200 flex items-center justify-between shadow-xs">
+                        <div><span class="text-slate-400 text-xs font-bold uppercase block">Total Staff</span><span id="stat-staff-count" class="text-2xl font-black">86</span></div>
+                        <div class="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-xl flex items-center justify-center"><i class="fa-solid fa-user-tie"></i></div>
+                    </div>
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200 flex items-center justify-between shadow-xs">
+                        <div><span class="text-slate-400 text-xs font-bold uppercase block">Attendance Rate</span><span id="stat-rate" class="text-2xl font-black">--</span></div>
+                        <div class="w-12 h-12 bg-amber-50 text-amber-600 rounded-xl flex items-center justify-center"><i class="fa-solid fa-chart-line"></i></div>
+                    </div>
+                    <div class="bg-white p-5 rounded-2xl border border-slate-200 flex items-center justify-between shadow-xs">
+                        <div><span class="text-slate-400 text-xs font-bold uppercase block">Absent Logs</span><span id="stat-absent" class="text-2xl font-black text-rose-600">--</span></div>
+                        <div class="w-12 h-12 bg-rose-50 text-rose-600 rounded-xl flex items-center justify-center"><i class="fa-solid fa-user-xmark"></i></div>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <div class="lg:col-span-2 bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
+                        <div class="p-5 border-b border-slate-100 flex items-center justify-between bg-slate-50/50">
+                            <h3 class="font-bold text-slate-800 text-sm">Realtime Presence Stream</h3>
+                            <button onclick="fetchData()" class="px-3 py-1.5 bg-indigo-600 text-white text-xs font-bold rounded-lg cursor-pointer hover:bg-indigo-700 transition"><i class="fa-solid fa-arrows-rotate mr-1"></i> Sync DB</button>
+                        </div>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-left border-collapse text-xs">
+                                <thead>
+                                    <tr class="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
+                                        <th class="p-4 pl-6">Student</th>
+                                        <th class="p-4">Class</th>
+                                        <th class="p-4">Timestamp</th>
+                                        <th class="p-4 pr-6 text-right">Status</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="attendance-rows" class="divide-y divide-slate-100 text-slate-600 font-medium">
+                                    <tr><td colspan="4" class="p-4 text-center text-slate-400">Loading data stream...</td></tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    
+                    <div class="bg-slate-900 text-slate-200 p-5 rounded-2xl border border-slate-800 font-mono text-xs space-y-4 shadow-md">
+                        <div class="flex items-center justify-between border-b border-slate-800 pb-2">
+                            <span class="text-amber-400 font-bold"><i class="fa-solid fa-terminal mr-1"></i> Hardware Gate Scanner</span>
+                            <span class="text-[10px] text-slate-500">Hardware Simulation</span>
+                        </div>
+                        <div class="space-y-2">
+                            <button onclick="simulateHardwareScan(1, 'card')" class="w-full p-2.5 bg-slate-800 hover:bg-indigo-900 text-left rounded-xl border border-slate-700 flex items-center justify-between cursor-pointer transition"><span>💳 Tap Student ID 1 Card</span></button>
+                            <button onclick="simulateHardwareScan(2, 'qr')" class="w-full p-2.5 bg-slate-800 hover:bg-purple-900 text-left rounded-xl border border-slate-700 flex items-center justify-between cursor-pointer transition"><span>🔍 Scan Student ID 2 QR</span></button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="page-students" class="page-content active space-y-6">
+                <div class="bg-white p-6 border border-slate-200 rounded-2xl space-y-4 shadow-xs">
+                    <h3 class="font-bold text-slate-800 text-sm"><i class="fa-solid fa-user-plus text-indigo-600 mr-1"></i> Register New Student</h3>
+                    
+                    <form id="student-reg-form" onsubmit="registerStudent(event)" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4 items-end">
+                        <div>
+                            <label class="block text-[11px] font-bold uppercase text-slate-400 mb-1">Full Name</label>
+                            <input type="text" id="reg-name" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500" placeholder="ASIFIWE Josue">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold uppercase text-slate-400 mb-1">Reg Number</label>
+                            <input type="text" id="reg-number" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500" placeholder="MIPC/2026/0">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold uppercase text-slate-400 mb-1">Class (Ishuri)</label>
+                            <select id="reg-class" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500">
+                                <option value="" disabled selected>-- Hitamo Class --</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold uppercase text-slate-400 mb-1">Gender & Photo</label>
+                            <div class="flex gap-2">
+                                <select id="reg-gender" required class="w-5/12 bg-slate-50 border border-slate-200 rounded-xl px-2 py-2 text-xs focus:outline-none focus:border-indigo-500">
+                                    <option value="Male">Male</option>
+                                    <option value="Female">Female</option>
+                                </select>
+                                <input type="file" id="reg-photo-file" accept="image/*" required class="w-7/12 bg-slate-50 border border-slate-200 rounded-xl px-2 py-1.5 text-[11px] text-slate-500 file:hidden cursor-pointer focus:outline-none focus:border-indigo-500">
+                            </div>
+                        </div>
+                        <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs py-2 rounded-xl transition cursor-pointer shadow-sm"><i class="fa-solid fa-plus mr-1"></i> Register</button>
+                    </form>
+                </div>
+
+                <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
+                    <div class="p-5 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-slate-50/50">
+                        <h3 class="font-bold text-slate-800 text-sm">Official Enrolled Students Directory</h3>
+                        <div class="flex items-center gap-2">
+                            <label for="classFilter" class="text-xs font-bold text-slate-500 uppercase"><i class="fa-solid fa-filter mr-1"></i> Class:</label>
+                            <select id="classFilter" onchange="filterStudentsByClass()" class="p-2 border border-slate-200 rounded-xl bg-white text-xs font-bold text-slate-700 shadow-xs focus:outline-none focus:border-indigo-500">
+                                <option value="All">All Classes (Abanyeshuri Bose)</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-xs">
+                            <thead>
+                                <tr class="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
+                                    <th class="p-4 pl-6">Student details</th>
+                                    <th class="p-4">Reg No</th>
+                                    <th class="p-4">Assigned Class</th>
+                                    <th class="p-4">Gender</th>
+                                    <th class="p-4 text-center">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="student-directory-rows" class="divide-y divide-slate-100 text-slate-600 font-medium">
+                                <tr><td colspan="5" class="p-4 text-center text-slate-400">Loading directory...</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div id="page-discipline" class="page-content space-y-6">
+                <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+                    <!-- Discipline Sidebar -->
+                    <aside class="lg:col-span-1 bg-white border border-slate-200 rounded-2xl p-4 shadow-xs space-y-1 h-fit">
+                        <button onclick="switchDisciplineTab('dashboard')" id="disc-nav-dashboard" class="w-full flex items-center gap-3 px-4 py-3 text-sm font-bold bg-indigo-600 text-white rounded-xl transition cursor-pointer">
+                            <i class="fa-solid fa-chart-line w-5 text-center"></i> Overview
+                        </button>
+                        <button onclick="switchDisciplineTab('incidents')" id="disc-nav-incidents" class="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition cursor-pointer">
+                            <i class="fa-solid fa-triangle-exclamation w-5 text-center"></i> Incidents
+                        </button>
+                        <button onclick="switchDisciplineTab('passes')" id="disc-nav-passes" class="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition cursor-pointer">
+                            <i class="fa-solid fa-file-contract w-5 text-center"></i> Leave Passes
+                        </button>
+                        <button onclick="switchDisciplineTab('punishments')" id="disc-nav-punishments" class="w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition cursor-pointer">
+                            <i class="fa-solid fa-gavel w-5 text-center"></i> Punishments
+                        </button>
+                    </aside>
+
+                    <!-- Discipline Content Area -->
+                    <div class="lg:col-span-3 space-y-6">
+                        <!-- Tab 1: Dashboard -->
+                        <div id="disc-tab-dashboard" class="discipline-tab active space-y-6">
+                            <div class="bg-white p-6 border border-slate-200 rounded-2xl shadow-xs">
+                                <h3 class="font-bold text-slate-800 text-sm mb-4">Conduct Overview</h3>
+                                <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                    <div class="p-4 bg-slate-50 rounded-xl border border-slate-100">
+                                        <span class="text-[10px] font-bold text-slate-400 uppercase">Total Incidents</span>
+                                        <p class="text-xl font-black text-slate-700">24</p>
+                                    </div>
+                                    <div class="p-4 bg-rose-50 rounded-xl border border-rose-100">
+                                        <span class="text-[10px] font-bold text-rose-400 uppercase">High Severity</span>
+                                        <p class="text-xl font-black text-rose-600">3</p>
+                                    </div>
+                                    <div class="p-4 bg-emerald-50 rounded-xl border border-emerald-100">
+                                        <span class="text-[10px] font-bold text-emerald-400 uppercase">Resolved</span>
+                                        <p class="text-xl font-black text-emerald-600">18</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Tab 2: Incident Form -->
+                        <div id="disc-tab-incidents" class="discipline-tab hidden bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
+                            <div class="bg-indigo-600 p-6">
+                                <h3 class="text-white font-bold flex items-center gap-2"><i class="fa-solid fa-circle-exclamation"></i> Record New Discipline Incident</h3>
+                                <p class="text-indigo-100 text-[11px] mt-1">Please provide accurate details regarding the student infraction.</p>
+                            </div>
+                            <form id="incident-form" onsubmit="submitIncident(event)" class="p-6 space-y-4">
+                                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div>
+                                        <label class="block text-[11px] font-bold uppercase text-slate-400 mb-1">Student ID / Name</label>
+                                        <select id="inc-student" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500">
+                                            <option value="">Select Student</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-[11px] font-bold uppercase text-slate-400 mb-1">Incident Type</label>
+                                        <select id="inc-type" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500">
+                                            <option value="">Select Category</option>
+                                            <option value="Academic Misconduct">Academic Misconduct</option>
+                                            <option value="Behavioral Issue">Behavioral Issue</option>
+                                            <option value="Dress Code">Dress Code Violation</option>
+                                            <option value="Attendance">Chronic Tardiness</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-[11px] font-bold uppercase text-slate-400 mb-1">Severity</label>
+                                        <select id="inc-severity" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500">
+                                            <option value="Low">Low</option>
+                                            <option value="Medium" selected>Medium</option>
+                                            <option value="High">High</option>
+                                        </select>
+                                    </div>
+                                    <div>
+                                        <label class="block text-[11px] font-bold uppercase text-slate-400 mb-1">Reported By</label>
+                                        <input type="text" id="inc-reported" required placeholder="Staff Name" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500">
+                                    </div>
+                                </div>
+                                <div>
+                                    <label class="block text-[11px] font-bold uppercase text-slate-400 mb-1">Description</label>
+                                    <textarea id="inc-desc" rows="3" required placeholder="Context..." class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500 resize-none"></textarea>
+                                </div>
+                                <div class="text-right">
+                                    <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-6 py-2 rounded-xl transition cursor-pointer shadow-sm">Submit Report</button>
+                                </div>
+                            </form>
+                        </div>
+
+                        <!-- Placeholder for other tabs -->
+                        <div id="disc-tab-passes" class="discipline-tab hidden bg-white p-6 border border-slate-200 rounded-2xl shadow-xs">
+                             <h3 class="font-bold text-slate-800 text-sm">Leave Passes Management</h3>
+                             <p class="text-xs text-slate-500 mt-2">Manage student leave and permission requests here.</p>
+                        </div>
+                        <div id="disc-tab-punishments" class="discipline-tab hidden bg-white p-6 border border-slate-200 rounded-2xl shadow-xs">
+                             <h3 class="font-bold text-slate-800 text-sm">Corrective Actions</h3>
+                             <p class="text-xs text-slate-500 mt-2">Review and manage corrective actions.</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="page-permissions" class="page-content space-y-6">
+                <div class="bg-white p-6 border border-slate-200 rounded-2xl space-y-4 shadow-xs">
+                    <h3 class="font-bold text-slate-800 text-sm"><i class="fa-solid fa-pen-to-square text-amber-500 mr-1"></i> Guha Umunyeshuri Uruhushya (Fees Checked)</h3>
+                    <form id="permission-form" onsubmit="givePermission(event)" class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+                        <div>
+                            <label class="block text-[11px] font-bold uppercase text-slate-400 mb-1">Hitamo Umunyeshuri</label>
+                            <!-- Searchable student picker -->
+                            <div class="relative" id="perm-student-wrapper">
+                                <div class="relative">
+                                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] pointer-events-none"></i>
+                                    <input
+                                        type="text"
+                                        id="perm-student-search"
+                                        placeholder="Andika izina ry'umunyeshuri..."
+                                        autocomplete="off"
+                                        oninput="permStudentSearch()"
+                                        onfocus="permStudentSearch()"
+                                        class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-2 text-xs text-slate-700 font-medium focus:outline-none focus:border-indigo-500"
+                                    >
+                                </div>
+                                <!-- Hidden real value read by givePermission() -->
+                                <input type="hidden" id="perm-student-id">
+                                <!-- Dropdown results -->
+                                <ul
+                                    id="perm-student-dropdown"
+                                    class="hidden absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto text-xs"
+                                ></ul>
+                            </div>
+                            <!-- Confirmation chip shown after selection -->
+                            <div id="perm-student-chip" class="hidden mt-1.5 flex items-center gap-2 bg-indigo-50 border border-indigo-200 rounded-lg px-3 py-1.5">
+                                <i class="fa-solid fa-circle-check text-indigo-500 text-[10px]"></i>
+                                <span id="perm-student-chip-label" class="text-indigo-700 font-semibold text-[11px] truncate"></span>
+                                <button type="button" onclick="clearPermStudent()" class="ml-auto text-indigo-400 hover:text-rose-500 cursor-pointer text-[11px]">&times;</button>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold uppercase text-slate-400 mb-1">Impamvu y'Uruhushya (Reason)</label>
+                            <input type="text" id="perm-reason" required placeholder="Urugero: Kwivuza, Gutaha..." class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold uppercase text-slate-400 mb-1">Isaha n'Itariki yo Kugaruka (Expected Return)</label>
+                            <input type="datetime-local" id="perm-return-time" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500">
+                        </div>
+                        <div class="md:col-span-3 text-right">
+                            <button type="submit" class="bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs px-5 py-2 rounded-xl transition cursor-pointer shadow-xs"><i class="fa-solid fa-paper-plane mr-1"></i> Emeza Uruhushya</button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="bg-emerald-50 border border-emerald-200 rounded-2xl overflow-hidden shadow-xs">
+                    <div class="p-4 bg-emerald-600 text-white flex items-center gap-2">
+                        <i class="fa-solid fa-circle-check"></i>
+                        <h3 class="font-bold text-xs uppercase tracking-wider">Abanyeshuri Bafite Uruhushya Ruremezwa Ubu (Currently Approved)</h3>
+                    </div>
+                    <div class="overflow-x-auto bg-white">
+                        <table class="w-full text-left border-collapse text-xs">
+                            <thead>
+                                <tr class="bg-emerald-50/50 text-emerald-900 font-bold uppercase border-b border-emerald-100">
+                                    <th class="p-4 pl-6">Student</th>
+                                    <th class="p-4">Class</th>
+                                    <th class="p-4">Impamvu</th>
+                                    <th class="p-4">Igihe cyo kugaruka</th>
+                                    <th class="p-4 text-center">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="active-permissions-rows" class="divide-y divide-emerald-50 text-slate-600 font-medium">
+                                <tr><td colspan="5" class="p-4 text-center text-slate-400">Nta mpushya ziremezwa ubu.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="bg-rose-50 border border-rose-200 rounded-2xl overflow-hidden shadow-xs">
+                    <div class="p-4 bg-rose-600 text-white flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <i class="fa-solid fa-triangle-exclamation animate-bounce"></i>
+                            <h3 class="font-bold text-xs uppercase tracking-wider">Abanyeshuri Barengeje Igihe Cy'uruhushya (Overdue Students)</h3>
+                        </div>
+                        <span id="overdue-count-badge" class="bg-white text-rose-600 text-xs font-black px-2 py-0.5 rounded-full">0</span>
+                    </div>
+                    <div class="overflow-x-auto bg-white">
+                        <table class="w-full text-left border-collapse text-xs">
+                            <thead>
+                                <tr class="bg-rose-50/50 text-rose-900 font-bold uppercase border-b border-rose-100">
+                                    <th class="p-4 pl-6">Student</th>
+                                    <th class="p-4">Class</th>
+                                    <th class="p-4">Impamvu</th>
+                                    <th class="p-4">Yagombaga Kugaruka</th>
+                                    <th class="p-4">Igihe Kirengeje</th>
+                                    <th class="p-4 text-center">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="overdue-permissions-rows" class="divide-y divide-rose-50 text-slate-600 font-medium">
+                                <tr><td colspan="6" class="p-6 text-center text-slate-400">Nta munyeshuri urengeje igihe uhari ubu.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
+                    <div class="p-4 border-b border-slate-100 bg-slate-50/50"><h3 class="font-bold text-slate-800 text-sm">Urutonde rw'Impushya Zose (All Permissions History)</h3></div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-xs">
+                            <thead>
+                                <tr class="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
+                                    <th class="p-4 pl-6">Student</th>
+                                    <th class="p-4">Reason</th>
+                                    <th class="p-4">Leave Time</th>
+                                    <th class="p-4">Return Expected</th>
+                                    <th class="p-4">Status</th>
+                                    <th class="p-4 text-center">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="all-permissions-rows" class="divide-y divide-slate-100 text-slate-600 font-medium">
+                                <tr><td colspan="6" class="p-4 text-center text-slate-400">Nta mpushya zirandikwa.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div id="page-fees" class="page-content space-y-6">
+                <div class="bg-white p-6 border border-slate-200 rounded-2xl space-y-4 shadow-xs">
+                    <h3 class="font-bold text-slate-800 text-sm"><i class="fa-solid fa-money-bill-transfer text-emerald-600 mr-1"></i> Record Student School Fees Payment</h3>
+                    <form id="fees-payment-form" onsubmit="recordFeesPayment(event)" class="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                        <div>
+                            <label class="block text-[11px] font-bold uppercase text-slate-400 mb-1">Hitamo Umunyeshuri</label>
+                            <div class="relative" id="fees-student-wrapper">
+                                <div class="relative">
+                                    <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] pointer-events-none"></i>
+                                    <input type="text" id="fees-student-search" placeholder="Andika izina..." autocomplete="off"
+                                        oninput="feesStudentSearch()" onfocus="feesStudentSearch()"
+                                        class="w-full bg-slate-50 border border-slate-200 rounded-xl pl-8 pr-3 py-2 text-xs text-slate-700 font-medium focus:outline-none focus:border-emerald-500">
+                                </div>
+                                <input type="hidden" id="fees-student-id">
+                                <ul id="fees-student-dropdown" class="hidden absolute z-50 w-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg max-h-48 overflow-y-auto text-xs"></ul>
+                            </div>
+                            <div id="fees-student-chip" class="hidden mt-1.5 flex items-center gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-1.5">
+                                <i class="fa-solid fa-circle-check text-emerald-500 text-[10px]"></i>
+                                <span id="fees-student-chip-label" class="text-emerald-700 font-semibold text-[11px] truncate"></span>
+                                <button type="button" onclick="clearFeesStudent()" class="ml-auto text-emerald-400 hover:text-rose-500 cursor-pointer text-[11px]">&times;</button>
+                            </div>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold uppercase text-slate-400 mb-1">Amafaranga Yishyuwe (FRW)</label>
+                            <input type="number" id="fees-amount" required placeholder="Urugero: 150000" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-emerald-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold uppercase text-slate-400 mb-1">Inyemezabwishyu (Receipt No)</label>
+                            <input type="text" id="fees-receipt" required placeholder="Slip code / reference" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-emerald-500">
+                        </div>
+                        <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs py-2 rounded-xl transition cursor-pointer shadow-sm"><i class="fa-solid fa-receipt mr-1"></i> Save Receipt</button>
+                    </form>
+                </div>
+
+                <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs">
+                    <div class="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+                        <div class="flex items-center gap-4">
+                            <h3 class="font-bold text-slate-800 text-sm">School Fees Control Ledger (Urutonde rw'Ibyishyu)</h3>
+                            <div class="flex items-center gap-2">
+                                <label for="feesClassFilter" class="text-[10px] font-bold uppercase text-slate-400">Class:</label>
+                                <select id="feesClassFilter" onchange="filterFeesByClass()" class="text-[11px] bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-700 font-medium focus:outline-none focus:border-indigo-500">
+                                    <option value="All">All Classes (Abanyeshuri Bose)</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button onclick="fetchFeesLedger()" class="text-xs font-bold text-indigo-600"><i class="fa-solid fa-rotate mr-1"></i> Reload Ledger</button>
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left border-collapse text-xs">
+                            <thead>
+                                <tr class="bg-slate-50 text-slate-500 font-bold uppercase border-b border-slate-200">
+                                    <th class="p-4 pl-6">Student details</th>
+                                    <th class="p-4">Total Required</th>
+                                    <th class="p-4">Total Paid</th>
+                                    <th class="p-4">Remaining Balance</th>
+                                    <th class="p-4 text-right">Status</th>
+                                </tr>
+                            </thead>
+                            <tbody id="fees-ledger-rows" class="divide-y divide-slate-100 text-slate-600 font-medium">
+                                <tr><td colspan="4" class="p-4 text-center text-slate-400">No ledger records loaded.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div id="page-staff" class="page-content space-y-6">
+                <div class="bg-white p-6 border border-slate-200 rounded-2xl shadow-xs">
+                    <h3 class="font-bold text-slate-800 text-sm"><i class="fa-solid fa-user-plus text-blue-600 mr-1"></i> Register New Staff Member</h3>
+                    <form id="staff-register-form" onsubmit="registerStaffMember(event)" class="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                        <div>
+                            <label class="block text-[11px] font-bold uppercase text-slate-400 mb-1">Staff Name</label>
+                            <input type="text" id="staff-name" required placeholder="Full name (e.g., Kamanzi Jean)" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 font-medium focus:outline-none focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold uppercase text-slate-400 mb-1">Email Address</label>
+                            <input type="email" id="staff-email" required placeholder="email@smartschool.rw" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 font-medium focus:outline-none focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold uppercase text-slate-400 mb-1">Phone Number</label>
+                            <input type="tel" id="staff-phone" placeholder="+250 788 123 456" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 font-medium focus:outline-none focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold uppercase text-slate-400 mb-1">Role</label>
+                            <select id="staff-role" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 font-medium focus:outline-none focus:border-blue-500">
+                                <option value="">-- Select Role --</option>
+                                <option value="TEACHER">Teacher</option>
+                                <option value="BURSAR">Bursar</option>
+                                <option value="ADMIN">Administrator</option>
+                                <option value="SECURITY">Security</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold uppercase text-slate-400 mb-1">NFC Card ID (Optional)</label>
+                            <input type="text" id="staff-nfc" placeholder="NFC001" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 font-medium focus:outline-none focus:border-blue-500">
+                        </div>
+                        <div>
+                            <label class="block text-[11px] font-bold uppercase text-slate-400 mb-1">Staff Photo (Image URL)</label>
+                            <input type="text" id="staff-image-url" placeholder="Urugero: /assets/images/staff1.jpg" class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-700 font-medium focus:outline-none focus:border-blue-500">
+                        </div>
+                        <div class="md:col-span-2 flex justify-end mt-2">
+                            <button type="submit" class="w-full md:w-auto bg-blue-600 text-white font-bold text-xs px-6 py-2 rounded-xl hover:bg-blue-700 transition">➕ Register Staff</button>
+                        </div>
+                    </form>
+                </div>
+
+                <div class="bg-white border border-slate-200 rounded-2xl shadow-xs p-6">
+                    <h3 class="font-bold text-slate-800 text-sm mb-4"><i class="fa-solid fa-people-group text-purple-600 mr-1"></i> Staff Directory</h3>
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-xs">
+                            <thead>
+                                <tr class="bg-slate-50 border-b border-slate-200 font-bold uppercase text-slate-500">
+                                    <th class="p-4 text-left">Staff Name</th>
+                                    <th class="p-4 text-left">Email / Phone</th>
+                                    <th class="p-4 text-left">Role</th>
+                                    <th class="p-4 text-left">NFC Card ID</th>
+                                </tr>
+                            </thead>
+                            <tbody id="staff-directory-rows" class="divide-y divide-slate-100 font-medium text-slate-600">
+                                <tr><td colspan="4" class="p-4 text-center text-slate-400">No staff data loaded.</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Transfer Student Modal -->
+    <div id="transfer-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6 space-y-4">
+            <div class="flex items-center justify-between">
+                <h3 class="font-bold text-slate-800 text-sm"><i class="fa-solid fa-right-left text-indigo-600 mr-2"></i>Transfer Student</h3>
+                <button onclick="closeTransferModal()" class="text-slate-400 hover:text-slate-700 text-lg leading-none cursor-pointer">&times;</button>
+            </div>
+            <p class="text-xs text-slate-500">Transferring: <span id="transfer-student-name" class="font-bold text-slate-700"></span></p>
+            <p class="text-xs text-slate-500">Current class: <span id="transfer-current-class" class="font-bold text-indigo-600"></span></p>
+            <input type="hidden" id="transfer-student-id">
+            <form onsubmit="submitTransfer(event)" class="space-y-3">
+                <div>
+                    <label class="block text-[11px] font-bold uppercase text-slate-400 mb-1">New Class</label>
+                    <select id="transfer-new-class" required class="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-indigo-500">
+                        <option value="" disabled selected>-- Hitamo Class Nshya --</option>
+                    </select>
+                </div>
+                <div class="flex gap-2 justify-end pt-1">
+                    <button type="button" onclick="closeTransferModal()" class="text-xs font-bold px-4 py-2 rounded-xl border border-slate-200 text-slate-600 hover:bg-slate-100 transition cursor-pointer">Cancel</button>
+                    <button type="submit" class="text-xs font-bold px-4 py-2 rounded-xl bg-indigo-600 text-white hover:bg-indigo-700 transition cursor-pointer"><i class="fa-solid fa-right-left mr-1"></i>Confirm Transfer</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        const API_URL = "http://localhost:5001/api";
+
+        // Single source of truth for all class options
+        const SCHOOL_CLASSES = [
+            // --- NETWORKING & INTERNET TECHNOLOGY ---
+            'L3 NETWORKING & INTERNET TECHNOLOGY A',
+            'L3 NETWORKING & INTERNET TECHNOLOGY B',
+            'L4 NETWORKING & INTERNET TECHNOLOGY',
+            'L5 NETWORKING & INTERNET TECHNOLOGY',
+            // --- SOFTWARE DEVELOPMENT ---
+            'L3 SOFTWARE DEVELOPMENT A',
+            'L3 SOFTWARE DEVELOPMENT B',
+            'L4 SOFTWARE DEVELOPMENT',
+            'L5 SOFTWARE DEVELOPMENT',
+            // --- BUILDING & CONSTRUCTION ---
+            'L3 BUILDING & CONSTRUCTION',
+            'L4 BUILDING & CONSTRUCTION',
+            'L5 BUILDING & CONSTRUCTION',
+            // --- FOOD & BEVERAGE OPERATIONS ---
+            'L3 FOOD & BEVERAGE OPERATIONS',
+            'L4 FOOD & BEVERAGE OPERATIONS',
+            'L5 FOOD & BEVERAGE OPERATIONS',
+            // --- TOURISM & HOSPITALITY ---
+            'L3 TOURISM & HOSPITALITY',
+            'L4 TOURISM & HOSPITALITY',
+            'L5 TOURISM & HOSPITALITY',
+            // --- ACCOUNTING (Senior) ---
+            'S4 ACCOUNTING',
+            'S5 ACCOUNTING',
+            'S6 ACCOUNTING',
+        ];
+
+        // Populate all class dropdowns from SCHOOL_CLASSES
+        function populateClassDropdowns() {
+            const classOptions = SCHOOL_CLASSES.map(c => `<option value="${c}">${c}</option>`).join('');
+            const filterOptions = `<option value="All">All Classes (Abanyeshuri Bose)</option>` + classOptions;
+            const transferPlaceholder = `<option value="" disabled selected>-- Hitamo Class Nshya --</option>`;
+
+            document.getElementById('reg-class').innerHTML          = `<option value="" disabled selected>-- Hitamo Class --</option>` + classOptions;
+            document.getElementById('classFilter').innerHTML         = filterOptions;
+            document.getElementById('feesClassFilter').innerHTML     = filterOptions;
+            document.getElementById('transfer-new-class').innerHTML  = transferPlaceholder + classOptions;
+        }
+
+        // 1. Navigation Logic
+        function switchPage(pageId) {
+            document.querySelectorAll('.page-content').forEach(p => p.classList.remove('active'));
+            document.getElementById(`page-${pageId}`).classList.add('active');
+
+            // Hindura active state kuri sidebar buttons
+            const navContainer = document.getElementById('sidebar-nav');
+            navContainer.querySelectorAll('button').forEach(btn => {
+                btn.className = "w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-400 hover:text-white hover:bg-slate-800/50 rounded-xl cursor-pointer transition";
+            });
+            
+            const activeBtn = document.getElementById(`nav-${pageId}`);
+            if(activeBtn) {
+                activeBtn.className = "w-full flex items-center gap-3 px-4 py-3 text-sm font-bold bg-indigo-600 text-white rounded-xl cursor-pointer transition";
+            }
+
+            // Hindura umutwe w'amapaji (Page header Title)
+            const titles = {
+                dashboard: "Dashboard Overview | Admin",
+                students: "Students Management | Admin",
+                permissions: "Permissions Control | Admin",
+                discipline: "Discipline Tracking | Admin",
+                fees: "School Fees Accounting | Bursar",
+                staff: "Staff Members Directory | Admin"
+            };
+            document.getElementById('page-title').innerText = titles[pageId] || "Smart School System";
+
+            if (pageId === 'permissions') fetchPermissions();
+            if (pageId === 'discipline') switchDisciplineTab('dashboard');
+            if (pageId === 'fees') {
+                fetchFeesLedger();
+                // Populate set-target dropdowns from already-loaded student list
+                const classOpts = SCHOOL_CLASSES.map(c => `<option value="${c}">${c}</option>`).join('');
+                document.getElementById('target-class').innerHTML = '<option value="">-- Hitamo Class --</option>' + classOpts;
+                document.getElementById('target-student').innerHTML = '<option value="">-- Hitamo Umunyeshuri --</option>' +
+                    allStudents.map(s => `<option value="${s.id}">${s.name} (${s.class_name})</option>`).join('');
+            }
+        }
+
+        // 2. Register Student Function (Inosoye neza)
+        async function registerStudent(event) {
+            event.preventDefault();
+            console.log("Kugerageza kwandika umunyeshuri...");
+
+            try {
+                const fileInput = document.getElementById('reg-photo-file');
+                const nameInput = document.getElementById('reg-name').value;
+                const regInput = document.getElementById('reg-number').value;
+                const classInput = document.getElementById('reg-class').value;
+                const genderInput = document.getElementById('reg-gender').value;
+
+                if (!fileInput || fileInput.files.length === 0) {
+                    alert("Ugomba guhitamo ifoto ya kanyeshuri!");
+                    return;
+                }
+
+                const formData = new FormData();
+                formData.append('name', nameInput);
+                formData.append('reg_number', regInput);
+                formData.append('className', classInput);
+                formData.append('gender', genderInput);
+                formData.append('photo', fileInput.files[0]); 
+
+                const res = await fetch(`${API_URL}/students/register`, {
+                    method: 'POST',
+                    body: formData
+                });
+
+                if (res.ok) {
+                    alert('🎉 Umunyeshuri n\'ifoto ye bakiriwe neza!');
+                    document.getElementById('student-reg-form').reset();
+                    fetchStudents();
+                } else {
+                    const errData = await res.json();
+                    alert('Byanze: ' + (errData.error || errData.message || 'Ikibazo cyavuye kuri server'));
+                }
+            } catch (error) {
+                console.error("Error:", error);
+                alert("Ntabwo system iri kubasha kugera kuri Backend!");
+            }
+        }
+
+        // 3. Live Clock & Date Simulation
+        setInterval(() => {
+            const now = new Date();
+            document.getElementById('live-clock').innerText = now.toLocaleTimeString();
+        }, 1000);
+        document.getElementById('system-date').innerText = new Date().toDateString();
+
+        // 4. Fetch and render all students into the directory table
+        let allStudents = [];
+        async function fetchStudents() {
+            try {
+                const res = await fetch(`${API_URL}/students`);
+                if (!res.ok) throw new Error(`Server returned ${res.status}`);
+                allStudents = await res.json();
+                renderStudentDirectory(allStudents);
+                populateStudentDropdowns(allStudents);
+            } catch (err) {
+                console.error('STUDENT_FETCH_ERROR:', err);
+                document.getElementById('student-directory-rows').innerHTML =
+                    `<tr><td colspan="5" class="p-4 text-center text-rose-500">Byanze gukurura abanyeshuri: ${err.message}</td></tr>`;
+            }
+        }
+
+        function renderStudentDirectory(students) {
+            const tbody = document.getElementById('student-directory-rows');
+            if (!students.length) {
+                tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-slate-400">Nta munyeshuri uanditswe.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = students.map(s => `
+                <tr class="hover:bg-slate-50">
+                    <td class="p-4 pl-6">
+                        <div class="flex items-center gap-3">
+                            <img src="/uploads/${s.photo_url}" onerror="this.src='https://ui-avatars.com/api/?name=${encodeURIComponent(s.name)}&background=6366f1&color=fff'" class="w-8 h-8 rounded-full object-cover shrink-0">
+                            <span class="font-semibold text-slate-800">${s.name}</span>
+                        </div>
+                    </td>
+                    <td class="p-4 font-mono text-slate-600">${s.reg_number}</td>
+                    <td class="p-4">${s.class_name}</td>
+                    <td class="p-4">${s.gender || '-'}</td>
+                    <td class="p-4">
+                        <div class="flex items-center justify-center gap-2">
+                            <button onclick="openTransferModal(${s.id}, '${s.class_name}', '${s.name.replace(/'/g, "\\'")}')"
+                                class="inline-flex items-center gap-1 text-indigo-600 hover:text-white hover:bg-indigo-600 font-bold text-xs px-3 py-1.5 rounded-lg border border-indigo-200 hover:border-indigo-600 transition">
+                                <i class="fa-solid fa-right-left text-[10px]"></i> Transfer
+                            </button>
+                            <button onclick="deleteStudent(${s.id})"
+                                class="inline-flex items-center gap-1 text-rose-500 hover:text-white hover:bg-rose-500 font-bold text-xs px-3 py-1.5 rounded-lg border border-rose-200 hover:border-rose-500 transition">
+                                <i class="fa-solid fa-trash text-[10px]"></i> Delete
+                            </button>
+                        </div>
+                    </td>
+                </tr>`).join('');
+        }
+
+        function filterStudentsByClass() {
+            const filter = document.getElementById('classFilter').value;
+            const filtered = filter === 'All' ? allStudents : allStudents.filter(s => s.class_name === filter);
+            renderStudentDirectory(filtered);
+        }
+
+        function populateStudentDropdowns(students) {
+            const incidentStudent = document.getElementById('inc-student');
+            incidentStudent.replaceChildren(new Option('Select Student', ''));
+            students.forEach(student => {
+                incidentStudent.add(new Option(
+                    `${student.name} (${student.reg_number})`,
+                    student.id
+                ));
+            });
+        }
+
+        // ---- Searchable permission student picker ----
+        function permStudentSearch() {
+            const query = document.getElementById('perm-student-search').value.trim().toLowerCase();
+            const dropdown = document.getElementById('perm-student-dropdown');
+
+            const matches = query.length === 0
+                ? allStudents.slice(0, 8)          // show first 8 on empty focus
+                : allStudents.filter(s =>
+                    s.name.toLowerCase().includes(query) ||
+                    (s.reg_number && s.reg_number.toLowerCase().includes(query))
+                  ).slice(0, 10);
+
+            if (!matches.length) {
+                dropdown.innerHTML = '<li class="text-slate-400 italic">Nta munyeshuri ubonetse</li>';
+            } else {
+                dropdown.innerHTML = matches.map(s => `
+                    <li onclick="selectPermStudent(${s.id}, '${s.name.replace(/'/g, "\\'")}'  , '${(s.class_name || '').replace(/'/g, "\\'")}'  )">
+                        <span class="student-name">${s.name}</span>
+                        <span class="student-class">${s.class_name || ''}</span>
+                    </li>`).join('');
+            }
+            dropdown.classList.remove('hidden');
+        }
+
+        function selectPermStudent(id, name, className) {
+            document.getElementById('perm-student-id').value          = id;
+            document.getElementById('perm-student-search').value      = '';
+            document.getElementById('perm-student-chip-label').textContent = `${name} · ${className}`;
+            document.getElementById('perm-student-chip').classList.remove('hidden');
+            document.getElementById('perm-student-dropdown').classList.add('hidden');
+        }
+
+        function clearPermStudent() {
+            document.getElementById('perm-student-id').value = '';
+            document.getElementById('perm-student-search').value = '';
+            document.getElementById('perm-student-chip').classList.add('hidden');
+            document.getElementById('perm-student-chip-label').textContent = '';
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (e) => {
+            if (!document.getElementById('perm-student-wrapper')?.contains(e.target)) {
+                document.getElementById('perm-student-dropdown')?.classList.add('hidden');
+            }
+        });
+
+        async function deleteStudent(id) {
+            if (!confirm('Uremeza gusiba uyu munyeshuri?')) return;
+            try {
+                const res = await fetch(`${API_URL}/students/${id}`, { method: 'DELETE' });
+                if (!res.ok) throw new Error((await res.json()).error || 'Server error');
+                fetchStudents();
+            } catch (err) {
+                alert('Gusiba byanze: ' + err.message);
+            }
+        }
+
+        // Transfer modal helpers
+        function openTransferModal(id, currentClass, name) {
+            document.getElementById('transfer-student-id').value    = id;
+            document.getElementById('transfer-student-name').innerText = name;
+            document.getElementById('transfer-current-class').innerText = currentClass;
+            document.getElementById('transfer-new-class').value = '';
+            document.getElementById('transfer-modal').classList.remove('hidden');
+        }
+        function closeTransferModal() {
+            document.getElementById('transfer-modal').classList.add('hidden');
+        }
+        async function submitTransfer(event) {
+            event.preventDefault();
+            const id       = document.getElementById('transfer-student-id').value;
+            const newClass = document.getElementById('transfer-new-class').value;
+            if (!newClass) return alert('Hitamo class nshya!');
+            try {
+                const res = await fetch(`${API_URL}/students/${id}/transfer`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ newClass })
+                });
+                if (!res.ok) throw new Error((await res.json()).error || 'Transfer failed');
+                closeTransferModal();
+                fetchStudents();
+            } catch (err) {
+                alert('Transfer byanze: ' + err.message);
+            }
+        }
+
+        // ============================================================
+        // PERMISSIONS MODULE
+        // ============================================================
+
+        // Converts seconds into a human-readable overdue duration e.g. "2h 15m"
+        function formatOverdueDuration(seconds) {
+            if (seconds < 60)  return `${seconds}s`;
+            if (seconds < 3600) return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+            const h = Math.floor(seconds / 3600);
+            const m = Math.floor((seconds % 3600) / 60);
+            return m > 0 ? `${h}h ${m}m` : `${h}h`;
+        }
+
+        // Format a timestamp string from PostgreSQL without any timezone conversion.
+        // PostgreSQL returns e.g. "2026-06-02T21:37:00.000Z" or "2026-06-02T21:37:00".
+        // We strip the trailing Z/offset and parse as local wall-clock time so
+        // 21:37 stored is always displayed as 21:37 regardless of browser timezone.
+        function fmtTs(raw) {
+            if (!raw) return '--';
+            // Remove trailing Z or +00:00 offset so JS won't apply timezone conversion
+            const clean = String(raw).replace(/Z$/, '').replace(/\+00:00$/, '').replace(/\.\d+$/, '');
+            // clean is now "2026-06-02T21:37:00" — parse as local
+            const d = new Date(clean);
+            if (isNaN(d)) return raw; // fallback: show raw if unparseable
+            return d.toLocaleString('en-GB', {
+                day:    '2-digit', month: 'short', year: 'numeric',
+                hour:   '2-digit', minute: '2-digit', hour12: true
+            });
+        }
+
+        // Dedicated overdue fetch — called on poll and on page open
+        async function fetchOverduePermissions() {
+            try {
+                const res = await fetch(`${API_URL}/permissions/overdue`);
+                if (!res.ok) throw new Error(`Overdue fetch failed: ${res.status}`);
+                const rows = await res.json();
+
+                renderOverduePermissions(rows);
+                updateOverdueBadges(rows.length);
+            } catch (err) {
+                console.error('OVERDUE_FETCH_ERROR:', err);
+            }
+        }
+
+        // Update all overdue count indicators across the UI
+        function updateOverdueBadges(count) {
+            // Sidebar nav badge
+            const navBadge = document.getElementById('overdue-nav-badge');
+            navBadge.textContent = count;
+            navBadge.classList.toggle('hidden', count === 0);
+
+            // Table header count
+            const countBadge = document.getElementById('overdue-count-badge');
+            if (countBadge) countBadge.textContent = count;
+
+            // Top banner
+            document.getElementById('overdue-notification-banner').classList.toggle('hidden', count === 0);
+        }
+
+        async function givePermission(event) {
+            event.preventDefault();
+            const student_id  = document.getElementById('perm-student-id').value;
+            const reason      = document.getElementById('perm-reason').value.trim();
+            const returnRaw   = document.getElementById('perm-return-time').value;
+
+            if (!student_id)  { alert('Hitamo umunyeshuri mbere! Andika izina ubone umunyeshuri mu rutonde.'); return; }
+            if (!reason)      { alert('Andika impamvu y\'uruhushya!'); return; }
+            if (!returnRaw)   { alert('Hitamo igihe cyo kugaruka!'); return; }
+
+            // Send raw datetime-local string directly — no new Date(), no toISOString().
+            // This prevents any UTC timezone shift. PostgreSQL TIMESTAMP stores it as-is.
+            const return_timestamp = returnRaw; // e.g. "2026-06-02T21:37"
+            const btn = event.submitter;
+            const originalHTML = btn ? btn.innerHTML : '';
+            if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i> Ohereza...'; }
+
+            try {
+                const res = await fetch(`${API_URL}/permissions/give`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ student_id, reason, return_timestamp })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
+                alert('\u2705 Uruhushya rwatanzwe neza!');
+                document.getElementById('permission-form').reset();
+                clearPermStudent();
+                fetchPermissions();
+            } catch (err) {
+                console.error('PERMISSION_SUBMIT_ERROR:', err);
+                alert('Byanze gutanga uruhushya: ' + err.message);
+            } finally {
+                if (btn) { btn.disabled = false; btn.innerHTML = originalHTML; }
+            }
+        }
+
+        async function fetchPermissions() {
+            if (allStudents.length === 0) await fetchStudents();
+            try {
+                const [listRes, historyRes] = await Promise.all([
+                    fetch(`${API_URL}/permissions/list`),
+                    fetch(`${API_URL}/permissions/history`)
+                ]);
+                if (!listRes.ok)    throw new Error('List fetch failed: ' + listRes.status);
+                if (!historyRes.ok) throw new Error('History fetch failed: ' + historyRes.status);
+
+                const active  = await listRes.json();
+                const history = await historyRes.json();
+
+                renderActivePermissions(active.filter(p => p.status === 'Approved'));
+                renderAllPermissions(history);
+
+                // Overdue is handled by fetchOverduePermissions for accuracy
+                await fetchOverduePermissions();
+            } catch (err) {
+                console.error('PERMISSION_FETCH_ERROR:', err);
+            }
+        }
+
+        function renderActivePermissions(rows) {
+            const tbody = document.getElementById('active-permissions-rows');
+            if (!tbody) return;
+            if (!rows.length) {
+                tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-slate-400">Nta mpushya ziremezwa ubu.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = rows.map(p => `
+                <tr class="hover:bg-emerald-50">
+                    <td class="p-4 pl-6 font-semibold text-slate-800">${p.student_name}</td>
+                    <td class="p-4">${p.class_name}</td>
+                    <td class="p-4 text-slate-500">${p.reason}</td>
+                    <td class="p-4">${fmtTs(p.return_timestamp)}</td>
+                    <td class="p-4 text-center">
+                        <button onclick="markReturned(${p.id})"
+                            class="inline-flex items-center gap-1 bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs px-3 py-1.5 rounded-lg transition">
+                            <i class="fa-solid fa-check text-[10px]"></i> Yagarutse
+                        </button>
+                    </td>
+                </tr>`).join('');
+        }
+
+        function renderOverduePermissions(rows) {
+            const tbody = document.getElementById('overdue-permissions-rows');
+            if (!tbody) return;
+            if (!rows.length) {
+                tbody.innerHTML = '<tr><td colspan="6" class="p-6 text-center text-slate-400">Nta munyeshuri urengeje igihe uhari ubu.</td></tr>';
+                return;
+            }
+            tbody.innerHTML = rows.map(p => {
+                const overdueLabel = p.seconds_overdue
+                    ? `<span class="text-rose-600 font-black">${formatOverdueDuration(p.seconds_overdue)}</span>`
+                    : '<span class="text-rose-400">Birenze igihe</span>';
+                return `
+                <tr class="hover:bg-rose-50 bg-rose-50/30">
+                    <td class="p-4 pl-6">
+                        <div class="flex items-center gap-2">
+                            <span class="w-2 h-2 rounded-full bg-rose-500 animate-pulse shrink-0"></span>
+                            <span class="font-bold text-rose-800">${p.student_name}</span>
+                        </div>
+                    </td>
+                    <td class="p-4 text-slate-600">${p.class_name}</td>
+                    <td class="p-4 text-slate-500">${p.reason}</td>
+                    <td class="p-4 text-rose-600 font-semibold">${fmtTs(p.return_timestamp)}</td>
+                    <td class="p-4">${overdueLabel}</td>
+                    <td class="p-4 text-center">
+                        <button onclick="markReturned(${p.id})"
+                            class="inline-flex items-center gap-1 bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs px-3 py-1.5 rounded-lg transition cursor-pointer">
+                            <i class="fa-solid fa-check text-[10px]"></i> Mark Returned
+                        </button>
+                    </td>
+                </tr>`;
+            }).join('');
+        }
+
+        function renderAllPermissions(rows) {
+            const tbody = document.getElementById('all-permissions-rows');
+            if (!tbody) return;
+            if (!rows.length) {
+                tbody.innerHTML = '<tr><td colspan="6" class="p-4 text-center text-slate-400">Nta mpushya zirandikwa.</td></tr>';
+                return;
+            }
+            const statusColors = {
+                Approved: 'bg-emerald-100 text-emerald-700',
+                Overdue:  'bg-rose-100 text-rose-700',
+                Returned: 'bg-slate-100 text-slate-600'
+            };
+            tbody.innerHTML = rows.map(p => `
+                <tr class="hover:bg-slate-50">
+                    <td class="p-4 pl-6 font-semibold">${p.student_name}</td>
+                    <td class="p-4 text-slate-500">${p.reason}</td>
+                    <td class="p-4">${fmtTs(p.leave_timestamp)}</td>
+                    <td class="p-4">${fmtTs(p.return_timestamp)}</td>
+                    <td class="p-4">
+                        <span class="px-2 py-1 rounded-full text-[10px] font-bold ${statusColors[p.status] || 'bg-slate-100 text-slate-600'}">
+                            ${p.status}
+                        </span>
+                    </td>
+                    <td class="p-4 text-center">
+                        ${p.status === 'Approved' || p.status === 'Overdue'
+                            ? `<button onclick="markReturned(${p.id})" class="inline-flex items-center gap-1 bg-emerald-500 hover:bg-emerald-600 text-white font-bold text-xs px-3 py-1.5 rounded-lg transition cursor-pointer"><i class="fa-solid fa-check text-[10px]"></i> Yagarutse</button>`
+                            : '<span class="text-slate-400 text-xs">—</span>'}
+                    </td>
+                </tr>`).join('');
+        }
+
+        async function markReturned(id) {
+            try {
+                const res = await fetch(`${API_URL}/permissions/${id}/return`, { method: 'PUT' });
+                if (!res.ok) throw new Error((await res.json()).error || 'Failed');
+                // Refresh both the full permissions view and the overdue badge
+                fetchPermissions();
+            } catch (err) {
+                alert('Byanze kwemeza kugaruka: ' + err.message);
+            }
+        }
+
+        // Auto-poll overdue every 60 seconds regardless of which page is active
+        // This keeps the sidebar badge and banner up-to-date at all times
+        setInterval(fetchOverduePermissions, 60000);
+
+        // ============================================================
+        // FEES MODULE
+        // ============================================================
+        function feesStudentSearch() {
+            const query = document.getElementById('fees-student-search').value.trim().toLowerCase();
+            const dropdown = document.getElementById('fees-student-dropdown');
+            const matches = query.length === 0
+                ? allStudents.slice(0, 8)
+                : allStudents.filter(s =>
+                    s.name.toLowerCase().includes(query) ||
+                    (s.reg_number && s.reg_number.toLowerCase().includes(query))
+                  ).slice(0, 10);
+            dropdown.innerHTML = matches.length
+                ? matches.map(s => `
+                    <li onclick="selectFeesStudent(${s.id},'${s.name.replace(/'/g,"\\'")}','${(s.reg_number||'').replace(/'/g,"\\'")}'  )">
+                        <span class="student-name">${s.name}</span>
+                        <span class="student-class">${s.reg_number || ''} &mdash; ${s.class_name || ''}</span>
+                    </li>`).join('')
+                : '<li class="text-slate-400 italic p-3">Nta munyeshuri ubonetse</li>';
+            dropdown.classList.remove('hidden');
+        }
+
+        function selectFeesStudent(id, name, regNo) {
+            document.getElementById('fees-student-id').value = id;
+            document.getElementById('fees-student-search').value = '';
+            document.getElementById('fees-student-chip-label').textContent = `${name} (${regNo})`;
+            document.getElementById('fees-student-chip').classList.remove('hidden');
+            document.getElementById('fees-student-dropdown').classList.add('hidden');
+        }
+
+        function clearFeesStudent() {
+            document.getElementById('fees-student-id').value = '';
+            document.getElementById('fees-student-search').value = '';
+            document.getElementById('fees-student-chip').classList.add('hidden');
+            document.getElementById('fees-student-chip-label').textContent = '';
+        }
+
+        document.addEventListener('click', (e) => {
+            if (!document.getElementById('fees-student-wrapper')?.contains(e.target)) {
+                document.getElementById('fees-student-dropdown')?.classList.add('hidden');
+            }
+        });
+
+        let allLedgerRows = [];
+
+        async function fetchFeesLedger() {
+            const tbody = document.getElementById('fees-ledger-rows');
+            tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-slate-400">Loading...</td></tr>';
+            try {
+                const res = await fetch(`${API_URL}/fees/ledger`);
+                if (!res.ok) throw new Error(`Ledger fetch failed: ${res.status}`);
+                const json = await res.json();
+                allLedgerRows = json.data || json.ledger || [];
+                renderFeesLedger(allLedgerRows);
+            } catch (err) {
+                console.error('FEES_LEDGER_ERROR:', err);
+                tbody.innerHTML = `<tr><td colspan="4" class="p-4 text-center text-rose-500">Byanze: ${err.message}</td></tr>`;
+            }
+        }
+
+        function renderFeesLedger(rows) {
+            const tbody = document.getElementById('fees-ledger-rows');
+            if (!rows.length) {
+                tbody.innerHTML = '<tr><td colspan="5" class="p-4 text-center text-slate-400">No ledger records found. Use "Set Required Fees" above to initialise student targets.</td></tr>';
+                return;
+            }
+            const statusStyle = {
+                'COMPLETED':     'bg-emerald-100 text-emerald-700',
+                'PARTIALLY_PAID':'bg-amber-100 text-amber-700',
+                'UNPAID':        'bg-rose-100 text-rose-700',
+            };
+            const fmt = n => Number(n || 0).toLocaleString('en-US') + ' FRW';
+            tbody.innerHTML = rows.map(r => {
+                const balance = r.remaining_balance ?? r.balance ?? 0;
+                const statusKey = (r.status || 'UNPAID').toUpperCase().replace(' ', '_');
+                const statusLabel = r.status === 'PARTIALLY_PAID' ? 'PARTIALLY PAID' : (r.status || 'UNPAID');
+                return `
+                <tr class="hover:bg-slate-50">
+                    <td class="p-4 pl-6">
+                        <div class="font-semibold text-slate-800">${r.student_name}</div>
+                        <div class="text-[10px] text-slate-400">${r.reg_number || ''}&ensp;&mdash;&ensp;${r.class || ''}</div>
+                    </td>
+                    <td class="p-4 font-semibold text-slate-600">${fmt(r.total_required)}</td>
+                    <td class="p-4 font-semibold text-emerald-700">${fmt(r.total_paid)}</td>
+                    <td class="p-4 font-semibold ${balance > 0 ? 'text-rose-600' : 'text-slate-400'}">${fmt(balance)}</td>
+                    <td class="p-4 text-right">
+                        <span class="px-2 py-1 rounded-full text-[10px] font-bold ${statusStyle[statusKey] || 'bg-slate-100 text-slate-600'}">${statusLabel}</span>
+                    </td>
+                </tr>`;
+            }).join('');
+        }
+
+        function filterFeesByClass() {
+            const filter = document.getElementById('feesClassFilter').value;
+            const filtered = filter === 'All' ? allLedgerRows : allLedgerRows.filter(r => r.class === filter);
+            renderFeesLedger(filtered);
+        }
+
+        function toggleTargetScope() {
+            const scope = document.getElementById('target-scope').value;
+            document.getElementById('target-class-div').classList.toggle('hidden',   scope !== 'class');
+            document.getElementById('target-student-div').classList.toggle('hidden', scope !== 'student');
+        }
+
+        async function setFeesTarget(event) {
+            event.preventDefault();
+            const scope    = document.getElementById('target-scope').value;
+            const amount   = parseFloat(document.getElementById('target-amount').value);
+            if (!amount || amount <= 0) { alert('Injiza amafaranga asumba 0!'); return; }
+
+            const body = { total_required: amount };
+            if (scope === 'class') {
+                const cls = document.getElementById('target-class').value;
+                if (!cls) { alert('Hitamo class!'); return; }
+                body.class_name = cls;
+            } else {
+                const sid = document.getElementById('target-student').value;
+                if (!sid) { alert('Hitamo umunyeshuri!'); return; }
+                body.student_id = parseInt(sid);
+            }
+
+            const btn = event.submitter;
+            const orig = btn ? btn.innerHTML : '';
+            if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>...'; }
+            try {
+                const res  = await fetch(`${API_URL}/fees/set-target`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
+                alert(`\u2705 Target yashyizweho: ${data.updated} umunyeshuri.`);
+                document.getElementById('set-target-form').reset();
+                fetchFeesLedger();
+            } catch (err) {
+                console.error('FEES_SET_TARGET_ERROR:', err);
+                alert('Byanze: ' + err.message);
+            } finally {
+                if (btn) { btn.disabled = false; btn.innerHTML = orig; }
+            }
+        }
+
+        async function recordFeesPayment(event) {
+            event.preventDefault();
+            const student_id = document.getElementById('fees-student-id').value;
+            const amount     = document.getElementById('fees-amount').value;
+            const receipt_no = document.getElementById('fees-receipt').value.trim();
+
+            if (!student_id) { alert('Hitamo umunyeshuri mbere!'); return; }
+            if (!amount || Number(amount) <= 0) { alert('Injiza amafaranga asumba 0!'); return; }
+            if (!receipt_no) { alert('Injiza numero y\'inyemezabwishyu!'); return; }
+
+            const btn = event.submitter;
+            const orig = btn ? btn.innerHTML : '';
+            if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin mr-1"></i>...'; }
+
+            try {
+                const res = await fetch(`${API_URL}/fees/payments`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        student_id:   parseInt(student_id),
+                        amount_paid:  parseFloat(amount),
+                        bank_reference: receipt_no,
+                        payment_method: 'Cash'
+                    })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || `Server error ${res.status}`);
+                alert('\u2705 Kwishyura byakiriwe neza!');
+                document.getElementById('fees-payment-form').reset();
+                clearFeesStudent();
+                fetchFeesLedger();
+            } catch (err) {
+                console.error('FEES_PAYMENT_ERROR:', err);
+                alert('Byanze kwandika kwishyura: ' + err.message);
+            } finally {
+                if (btn) { btn.disabled = false; btn.innerHTML = orig; }
+            }
+        }
+
+        // ============================================================
+        // DISCIPLINE MODULE
+        // ============================================================
+        function switchDisciplineTab(tabId) {
+            document.querySelectorAll('.discipline-tab').forEach(t => t.classList.add('hidden'));
+            document.getElementById(`disc-tab-${tabId}`).classList.remove('hidden');
+
+            const navs = ['dashboard', 'incidents', 'passes', 'punishments'];
+            navs.forEach(id => {
+                const btn = document.getElementById(`disc-nav-${id}`);
+                if (id === tabId) {
+                    btn.className = "w-full flex items-center gap-3 px-4 py-3 text-sm font-bold bg-indigo-600 text-white rounded-xl transition cursor-pointer";
+                } else {
+                    btn.className = "w-full flex items-center gap-3 px-4 py-3 text-sm font-medium text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-xl transition cursor-pointer";
+                }
+            });
+        }
+
+        async function submitIncident(event) {
+            event.preventDefault();
+            const btn = event.submitter;
+            const orig = btn.innerHTML;
+            
+            // Collect fields
+            const student_id_val = document.getElementById('inc-student').value;
+            const incident_type_val = document.getElementById('inc-type').value;
+            const description_val = document.getElementById('inc-desc').value.trim();
+            const reported_by_val = document.getElementById('inc-reported').value.trim();
+            const severity_val = document.getElementById('inc-severity').value;
+
+            // The student selector stores the database ID, while displaying the student's name.
+            const payload = {
+                student_id: student_id_val ? Number(student_id_val) : '',
+                incident_type: incident_type_val,
+                description: description_val,
+                reported_by: reported_by_val,
+                severity: severity_val,
+                incident_date: new Date().toISOString().split('T')[0],
+                incident_time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false })
+            };
+
+            console.log('Submitting Incident Payload:', payload);
+
+            // Validation
+            if (!payload.student_id || !payload.incident_type || !payload.description || !payload.reported_by) {
+                alert('Please fill in all required fields: Student, Type, Description, and Reporter.');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Submitting...';
+
+            try {
+                const res = await fetch(`${API_URL}/discipline/incidents`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+
+                if (res.ok) {
+                    alert('🎉 Incident report submitted successfully!');
+                    document.getElementById('incident-form').reset();
+                    switchDisciplineTab('dashboard');
+                } else {
+                    console.error('Submission Error Response:', data);
+                    alert(`Error: ${data.message || 'Failed to submit report'}`);
+                }
+            } catch (err) {
+                console.error('Network/Server Error:', err);
+                alert('Network error. Check console for details.');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = orig;
+            }
+        }
+
+        // ============================================================
+        // fetchData — dashboard Sync DB button; uses class_name alias
+        async function fetchData() {
+            try {
+                const res = await fetch(`${API_URL}/attendance/today`);
+                if (!res.ok) throw new Error(`Server returned ${res.status}`);
+                const data = await res.json();
+                const tbody = document.getElementById('attendance-rows');
+                if (!data.details || !data.details.length) {
+                    tbody.innerHTML = '<tr><td colspan="4" class="p-4 text-center text-slate-400">Nta makuru y\'ubwitegura uhari ubu.</td></tr>';
+                    return;
+                }
+                tbody.innerHTML = data.details.map(s => `
+                    <tr class="hover:bg-slate-50">
+                        <td class="p-4 pl-6 font-semibold">${s.name}</td>
+                        <td class="p-4">${s.class_name}</td>
+                        <td class="p-4">${s.check_in_time ? new Date(s.check_in_time).toLocaleTimeString() : '--'}</td>
+                        <td class="p-4 pr-6 text-right">
+                            <span class="px-2 py-1 rounded-full text-[10px] font-bold ${s.status === 'present' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}">${s.status.toUpperCase()}</span>
+                        </td>
+                    </tr>`).join('');
+                if (data.statistics) {
+                    document.getElementById('stat-total').innerText  = data.statistics.total_students;
+                    document.getElementById('stat-rate').innerText   = data.statistics.attendance_percentage + '%';
+                    document.getElementById('stat-absent').innerText = data.statistics.absent;
+                }
+            } catch (err) {
+                console.error('ATTENDANCE_FETCH_ERROR:', err);
+            }
+        }
+
+        // On load: populate students directory and wire up register form to refresh list
+        window.addEventListener('load', () => {
+            populateClassDropdowns();
+            fetchStudents();
+            fetchData();
+            fetchOverduePermissions(); // populate badge and banner on initial load
+        });
+    </script>
+</body>
+</html

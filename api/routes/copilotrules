@@ -1,0 +1,16 @@
+# Project Rules: Digital MIPC EDU
+
+## Architecture
+- **Backend**: Node.js with Express.js located in `./api` folder.
+- **Main Server File**: `./api/server.js` running on Port 5000.
+- **Database**: PostgreSQL (pgAdmin) managed with `pg` Pool.
+- **Frontend**: HTML5, Tailwind CSS, JavaScript located in `./frontend` or `./public`.
+
+## Critical Database Schema
+- `fees_ledger` MUST contain columns: `id`, `student_id`, `amount`, `status`, `date_logged`.
+- Always wrap database schema initialization with auto-migrations (e.g., `ALTER TABLE fees_ledger ADD COLUMN IF NOT EXISTS amount NUMERIC(10,2) DEFAULT 0.00;`).
+- Always implement anti-crash error handling (`uncaughtException` and `unhandledRejection`) in Express server.
+
+## Code Style
+- Write production-ready, clean, well-commented JavaScript (ES6+).
+- Always test SQL queries for missing columns before executing operations.

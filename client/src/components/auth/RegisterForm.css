@@ -1,0 +1,177 @@
+.mipc-register {
+  --register-cyan: #00f2fe;
+  display: flex;
+  min-height: 100vh;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 30px 18px;
+  overflow: hidden;
+  background:
+    radial-gradient(ellipse at 50% 15%, rgba(0, 154, 184, .14), transparent 48%),
+    #050d18;
+  color: #e7f2fa;
+  font-family: Inter, "Segoe UI", sans-serif;
+}
+
+.mipc-register__grid {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(0, 242, 254, .025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 242, 254, .025) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+.mipc-register__panel {
+  position: relative;
+  width: min(100%, 470px);
+  padding: clamp(24px, 6vw, 40px);
+  border: 1px solid rgba(126, 164, 188, .25);
+  background: rgba(8, 21, 37, .94);
+  box-shadow: 0 25px 80px rgba(0, 0, 0, .45), 0 0 45px rgba(0, 242, 254, .06);
+}
+
+.mipc-register__header {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 28px;
+}
+
+.mipc-register__mark {
+  display: grid;
+  width: 46px;
+  height: 46px;
+  flex: 0 0 auto;
+  place-items: center;
+  border: 1px solid rgba(0, 242, 254, .6);
+  color: var(--register-cyan);
+  font-size: 23px;
+  font-weight: 800;
+}
+
+.mipc-register__header p {
+  margin: 0 0 5px;
+  color: var(--register-cyan);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .15em;
+}
+
+.mipc-register__header h1 {
+  margin: 0;
+  color: #f3f8fb;
+  font-size: 22px;
+  font-weight: 600;
+}
+
+.mipc-register__header > div > span {
+  display: block;
+  margin-top: 6px;
+  color: #8199aa;
+  font-size: 11px;
+}
+
+.mipc-register__form {
+  display: grid;
+  gap: 16px;
+}
+
+.mipc-register__form label {
+  display: grid;
+  gap: 8px;
+  color: #b4c5d0;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .12em;
+}
+
+.mipc-register__form input,
+.mipc-register__form select {
+  width: 100%;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid rgba(126, 164, 188, .28);
+  border-radius: 0;
+  outline: 0;
+  background: rgba(3, 13, 24, .8);
+  color: #eaf7fb;
+  font: inherit;
+  font-size: 13px;
+  letter-spacing: normal;
+}
+
+.mipc-register__form select option {
+  background: #081522;
+}
+
+.mipc-register__form input:focus,
+.mipc-register__form select:focus {
+  border-color: rgba(0, 242, 254, .75);
+  box-shadow: 0 0 0 3px rgba(0, 242, 254, .08);
+}
+
+.mipc-register__form small {
+  color: #7790a3;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: normal;
+}
+
+.mipc-register__form button {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  margin-top: 3px;
+  border: 1px solid rgba(0, 242, 254, .7);
+  background: linear-gradient(100deg, #00a8c6, #00d8e6);
+  color: #04121d;
+  cursor: pointer;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .12em;
+}
+
+.mipc-register__form button:disabled {
+  cursor: wait;
+  opacity: .65;
+}
+
+.mipc-register__error {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(255, 112, 112, .35);
+  background: rgba(100, 26, 35, .18);
+  color: #ffb9b9;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.mipc-register__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 21px;
+  color: var(--register-cyan);
+  font-size: 11px;
+  text-decoration: none;
+}
+
+.mipc-register__back:hover {
+  color: white;
+}
+
+.mipc-register__notice {
+  position: relative;
+  margin: 18px 0 0;
+  color: #60798d;
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 8px;
+  letter-spacing: .13em;
+  text-align: center;
+}

@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="rw">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Digital MIPC EDU - Permissions Module</title>
+    <style>
+        body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; background-color: #f4f6f9; color: #333; }
+        .container { max-width: 1100px; margin: 30px auto; background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.05); }
+        h2, h3 { color: #2c3e50; margin-top: 0; display: flex; align-items: center; gap: 10px; }
+        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+        @media (max-width: 768px) { .form-grid { grid-template-columns: 1fr; } }
+        .form-group { margin-bottom: 15px; position: relative; }
+        label { display: block; margin-bottom: 8px; font-weight: 600; color: #4a5568; font-size: 14px; }
+        input, select, textarea { width: 100%; padding: 12px; box-sizing: border-box; border: 1px solid #cbd5e0; border-radius: 6px; font-size: 15px; background-color: #fff; }
+        input:focus, textarea:focus { border-color: #4f46e5; outline: none; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.1); }
+        button { background-color: #4f46e5; color: white; padding: 12px 20px; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; width: 100%; transition: background 0.2s; }
+        button:hover { background-color: #4338ca; }
+        
+        /* Dropdown ya Live Search Results */
+        .search-results { position: absolute; background: white; border: 1px solid #cbd5e0; width: 100%; max-height: 220px; overflow-y: auto; z-index: 1000; display: none; border-radius: 6px; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); margin-top: 5px; }
+        .search-item { padding: 12px; cursor: pointer; border-bottom: 1px solid #edf2f7; display: flex; align-items: center; justify-content: space-between; }
+        .search-item:hover { background-color: #f7fafc; color: #4f46e5; }
+
+        /* Table Styling */
+        table { width: 100%; border-collapse: collapse; margin-top: 25px; background: white; border-radius: 8px; overflow: hidden; }
+        th, td { padding: 14px; text-align: left; border-bottom: 1px solid #e2e8f0; }
+        th { background-color: #f8fafc; color: #64748b; font-weight: 600; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px; }
+        tr:hover { background-color: #f8fafc; }
+        
+        /* Status Badges */
+        .status-badge { padding: 6px 12px; border-radius: 50px; font-size: 12px; font-weight: bold; display: inline-block; }
+        .Approved { background-color: #dcfce7; color: #15803d; }
+        .Overdue { background-color: #fee2e2; color: #b91c1c; }
+        .Returned { background-color: #f1f5f9; color: #475569; }
+        
+        .class-badge { background-color: #e0e7ff; color: #4338ca; font-size: 11px; padding: 4px 8px; border-radius: 4px; font-weight: bold; }
+        .action-btn { background-color: #10b981; color: white; padding: 6px 12px; border: none; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600; width: auto; }
+        .action-btn:hover { background-color: #059669; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>📝 Guha Umunyeshuri Uruhushya (Live Search)</h2>
+    
+    <form id="permissionForm">
+        <div class="form-grid">
+            <div class="form-group">
+                <label for="studentSearch">Shakisha Umunyeshuri (Izina cyangwa Reg No):</label>
+                <input type="text" id="studentSearch" placeholder="Andika izina ry'umunyeshuri..." autocomplete="off" required>
+                <div id="searchResults" class="search-results"></div>
+            </div>
+            
+            <div class="form-group">
+                <label for="return_timestamp">Isaha n'Itariki yo Kugarukiraho:</label>
+                <input type="datetime-local" id="return_timestamp" required>
+            </div>
+        </div>
+
+        <input type="hidden" id="student_id" required>
+
+        <div class="form-group">
+            <label for="reason">Impamvu y'Uruhushya (Reason):</label>
+            <textarea id="reason" rows="3" placeholder="Andika impamvu y'uruhushya hano..." required></textarea>
+        </div>
+
+        <button type="submit">✨ Emeza Uruhushya (Give Permission)</button>
+    </form>
+
+    <hr style="margin: 40px 0; border: 0; border-top: 1px solid #e2e8f0;">
+
+    <h3>📋 Impushya Ziri Mu Mahoro (Active Permissions)</h3>
+    <div style="overflow-x: auto;">
+        <table>
+            <thead>
+                <tr>
+                    <th>Umunyeshuri</th>
+                    <th>Ishuri (Class)</th>
+                    <th>Impamvu</th>
+                    <th>Igihe Atahiriye</th>
+                    <th>Igihe cyo Kugaruka</th>
+                    <th>Imiterere (Status)</th>
+                    <th>Igikorwa</th>
+                </tr>
+            </thead>
+            <tbody id="permissionsTableBody">
+            </tbody>
+        </table>
+    </div>
+
+    <hr style="margin: 40px 0; border: 0; border-top: 1px solid #e2e8f0;">
+
+    <h3>📚 Urutonde rw'Impushya Zose (All Permissions History)</h3>
+    <div style="overflow-x: auto;">
+        <table>
+            <thead>
+                <tr>
+                    <th>Umunyeshuri</th>
+                    <th>Ishuri (Class)</th>
+                    <th>Impamvu</th>
+                    <th>Igihe Atahiriye</th>
+                    <th>Igihe cyo Kugaruka</th>
+                    <th>Igihe Cyihindure</th>
+                    <th>Imiterere (Status)</th>
+                </tr>
+            </thead>
+            <tbody id="permissionsHistoryTableBody">
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    let allStudents = [];
+
+    // ============================================
+    // 1. Load all students for live search
+    // ============================================
+    async function loadStudents() {
+        try {
+            const res = await fetch('/api/students');
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            
+            const data = await res.json();
+            allStudents = Array.isArray(data) ? data : (data.students || []);
+            console.log('[✓] Loaded students:', allStudents.length);
+        } catch (err) {
+            console.error("[✗] Failed to load students:", err);
+        }
+    }
+
+    // ============================================
+    // 2. Live search functionality
+    // ============================================
+    const studentSearch = document.getElementById('studentSearch');
+    const searchResults = document.getElementById('searchResults');
+    const studentIdInput = document.getElementById('student_id');
+
+    studentSearch.addEventListener('input', (e) => {
+        const value = e.target.value.toLowerCase();
+        searchResults.innerHTML = '';
+        
+        if (!value) {
+            searchResults.style.display = 'none';
+            return;
+        }
+
+        const filtered = allStudents.filter(s => 
+            (s.name && s.name.toLowerCase().includes(value)) || 
+            (s.reg_no && s.reg_no.toLowerCase().includes(value)) ||
+            (s.reg_number && s.reg_number.toLowerCase().includes(value))
+        );
+
+        if (filtered.length > 0) {
+            filtered.forEach(student => {
+                const div = document.createElement('div');
+                div.className = 'search-item';
+                const regNo = student.reg_no || student.reg_number || 'N/A';
+                div.innerHTML = `
+                    <div><strong>${student.name}</strong> <br><small style="color:#718096">Reg: ${regNo}</small></div>
+                    <span class="class-badge">${student.class || 'N/A'}</span>
+                `;
+                
+                div.addEventListener('click', () => {
+                    studentSearch.value = `${student.name} (${student.class || 'N/A'})`;
+                    studentIdInput.value = student.id;
+                    searchResults.style.display = 'none';
+                });
+                searchResults.appendChild(div);
+            });
+            searchResults.style.display = 'block';
+        } else {
+            searchResults.style.display = 'none';
+        }
+    });
+
+    document.addEventListener('click', (e) => {
+        if (e.target !== studentSearch) searchResults.style.display = 'none';
+    });
+
+    // ============================================
+    // 3. Submit Permission Form
+    // ============================================
+    document.getElementById('permissionForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const student_id = parseInt(studentIdInput.value);
+        const reason = document.getElementById('reason').value.trim();
+        const return_timestamp = document.getElementById('return_timestamp').value;
+
+        if (!student_id || !reason || !return_timestamp) {
+            alert("All fields are required!");
+            return;
+        }
+
+        try {
+            const response = await fetch('/api/permissions/give', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ student_id, reason, return_timestamp })
+            });
+
+            const data = await response.json();
+            console.log('[DEBUG] POST /api/permissions/give response:', data);
+
+            if (data.success) {
+                alert("Permission given successfully!");
+                document.getElementById('permissionForm').reset();
+                studentIdInput.value = '';
+                loadPermissions();
+                loadPermissionsHistory();
+            } else {
+                alert("Error: " + (data.error || 'Unknown error'));
+            }
+        } catch (err) {
+            console.error("[✗] Failed to submit permission:", err);
+            alert("Error: " + err.message);
+        }
+    });
+
+    // ============================================
+    // 4. Load Active Permissions
+    // ============================================
+    async function loadPermissions() {
+        try {
+            const res = await fetch('/api/permissions/list');
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            
+            const data = await res.json();
+            console.log('[✓] GET /api/permissions/list response:', data);
+            
+            const permissions = Array.isArray(data) ? data : (data.permissions || []);
+            const tbody = document.getElementById('permissionsTableBody');
+            tbody.innerHTML = '';
+
+            if (permissions.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#a0aec0;">No active permissions found.</td></tr>`;
+                return;
+            }
+
+            permissions.forEach((row, index) => {
+                try {
+                    const tr = document.createElement('tr');
+                    
+                    const leaveDate = row.leave_timestamp 
+                        ? new Date(row.leave_timestamp).toLocaleString('rw-RW') 
+                        : 'N/A';
+                    const returnDate = row.return_timestamp 
+                        ? new Date(row.return_timestamp).toLocaleString('rw-RW') 
+                        : 'N/A';
+
+                    let actionButton = '';
+                    if (row.status === 'Approved' || row.status === 'Overdue') {
+                        actionButton = `<button class="action-btn return-btn" data-permission-id="${row.id}">Yagarutse</button>`;
+                    } else {
+                        actionButton = `<span style="color: #a0aec0; font-size:13px;">No action</span>`;
+                    }
+
+                    tr.innerHTML = `
+                        <td><strong>${row.student_name || 'Unknown'}</strong></td>
+                        <td><span class="class-badge">${row.class || 'N/A'}</span></td>
+                        <td>${row.reason || '-'}</td>
+                        <td style="font-size:13px; color:#4a5568;">${leaveDate}</td>
+                        <td style="font-size:13px; color:#4a5568;">${returnDate}</td>
+                        <td><span class="status-badge ${row.status}">${row.status || 'Unknown'}</span></td>
+                        <td>${actionButton}</td>
+                    `;
+                    tbody.appendChild(tr);
+                } catch (rowErr) {
+                    console.error(`[✗] Row ${index} failed:`, row, rowErr);
+                }
+            });
+            
+            console.log('[✓] Rendered', permissions.length, 'active permissions');
+        } catch (err) {
+            console.error("[✗] Failed to load active permissions:", err);
+            const tbody = document.getElementById('permissionsTableBody');
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:red;">Error: ${err.message}</td></tr>`;
+        }
+    }
+
+    // ============================================
+    // 5. Load Permission History
+    // ============================================
+    async function loadPermissionsHistory() {
+        try {
+            const res = await fetch('/api/permissions/history');
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            
+            const data = await res.json();
+            console.log('[✓] GET /api/permissions/history response:', data);
+            
+            const permissions = Array.isArray(data) ? data : (data.permissions || []);
+            const tbody = document.getElementById('permissionsHistoryTableBody');
+            tbody.innerHTML = '';
+
+            if (permissions.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:#a0aec0;">No permissions history found.</td></tr>`;
+                return;
+            }
+
+            permissions.forEach((row, index) => {
+                try {
+                    const tr = document.createElement('tr');
+                    
+                    const leaveDate = row.leave_timestamp 
+                        ? new Date(row.leave_timestamp).toLocaleString('rw-RW') 
+                        : 'N/A';
+                    const returnDate = row.return_timestamp 
+                        ? new Date(row.return_timestamp).toLocaleString('rw-RW') 
+                        : 'N/A';
+                    const actualReturnDate = row.actual_return_timestamp 
+                        ? new Date(row.actual_return_timestamp).toLocaleString('rw-RW') 
+                        : '-';
+
+                    tr.innerHTML = `
+                        <td><strong>${row.student_name || 'Unknown'}</strong></td>
+                        <td><span class="class-badge">${row.class || 'N/A'}</span></td>
+                        <td>${row.reason || '-'}</td>
+                        <td style="font-size:13px; color:#4a5568;">${leaveDate}</td>
+                        <td style="font-size:13px; color:#4a5568;">${returnDate}</td>
+                        <td style="font-size:13px; color:#4a5568;">${actualReturnDate}</td>
+                        <td><span class="status-badge ${row.status}">${row.status || 'Unknown'}</span></td>
+                    `;
+                    tbody.appendChild(tr);
+                } catch (rowErr) {
+                    console.error(`[✗] History row ${index} failed:`, row, rowErr);
+                }
+            });
+            
+            console.log('[✓] Rendered', permissions.length, 'permission history records');
+        } catch (err) {
+            console.error("[✗] Failed to load permission history:", err);
+            const tbody = document.getElementById('permissionsHistoryTableBody');
+            tbody.innerHTML = `<tr><td colspan="7" style="text-align:center; color:red;">Error: ${err.message}</td></tr>`;
+        }
+    }
+
+    // ============================================
+    // 6. Event Delegation for Return Buttons
+    // ============================================
+    document.addEventListener('click', async (e) => {
+        if (!e.target.classList.contains('return-btn')) return;
+        
+        const permissionId = parseInt(e.target.getAttribute('data-permission-id'));
+        console.log('[DEBUG] Return button clicked for permission ID:', permissionId);
+        
+        if (!permissionId) {
+            console.error('[✗] No permission ID found on button');
+            alert('Error: Permission ID not found');
+            return;
+        }
+
+        await markAsReturned(permissionId);
+    });
+
+    // ============================================
+    // 7. Mark Permission as Returned
+    // ============================================
+    async function markAsReturned(id) {
+        try {
+            console.log('[DEBUG] Marking permission as returned:', id);
+            const res = await fetch(`/api/permissions/${id}/return`, { method: 'PUT' });
+            
+            if (!res.ok) throw new Error(`HTTP ${res.status}`);
+            
+            const data = await res.json();
+            console.log('[✓] PUT /api/permissions/return response:', data);
+            
+            if (data.success) {
+                alert("🎉 Umunyeshuri yanditswe ko yagarutse neza!");
+                loadPermissions();
+                loadPermissionsHistory();
+            } else {
+                alert("Error: " + (data.error || 'Unknown error'));
+            }
+        } catch (err) {
+            console.error("[✗] Failed to mark as returned:", err);
+            alert("Error: " + err.message);
+        }
+    }
+
+    // ============================================
+    // 8. Initialize on page load
+    // ============================================
+    window.addEventListener('load', () => {
+        console.log('[✓] Page loaded, initializing...');
+        loadStudents();
+        loadPermissions();
+        loadPermissionsHistory();
+    });
+</script>
+</body>
+</html>
