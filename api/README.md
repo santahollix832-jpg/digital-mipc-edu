@@ -165,9 +165,10 @@ npm start
 The API listens on `http://localhost:5001` by default. Start the frontend in
 another terminal with `cd client && npm install && npm run dev`; Vite proxies
 `/api` requests to the API. For a separately hosted frontend, set
-`VITE_API_URL` to the API origin and set `CLIENT_ORIGIN` on the API to the
-frontend origin; use HTTPS and a same-site deployment so the session cookie is
-sent by the browser.
+`VITE_API_URL` to the API origin (for example, configure it in the Vercel
+project's environment variables to the Render API URL) and set `CLIENT_ORIGIN`
+on the API to the frontend origin; use HTTPS and a same-site deployment so the
+session cookie is sent by the browser.
 
 Login uses an eight-hour, HttpOnly session cookie backed by PostgreSQL. The API
 checks the user's role on protected routes; frontend route guards only control

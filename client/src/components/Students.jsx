@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { BadgeCheck, ChevronLeft, ChevronRight, PencilLine, Plus, Search, Trash2, UserRound, X } from 'lucide-react';
-import { apiFetch } from '../api/config';
+import { apiFetch, assetUrl } from '../api/config';
 import { useToast } from './ToastProvider';
 
 const PAGE_SIZE = 7;
@@ -297,7 +297,7 @@ function Students() {
                       <div className="flex items-center gap-3">
                             <div className="flex h-10 w-10 items-center justify-center overflow-hidden rounded-full bg-indigo-100 text-indigo-700">
                               {student.photo_url ? (
-                                <img src={student.photo_url.startsWith('http') ? student.photo_url : `http://localhost:5000${student.photo_url}` } alt={student.name} className="h-full w-full object-cover" />
+                                <img src={student.photo_url && student.photo_url.startsWith('http') ? student.photo_url : assetUrl(student.photo_url)} alt={student.name} className="h-full w-full object-cover" />
                               ) : (
                                 <UserRound size={17} />
                               )}
@@ -419,7 +419,7 @@ function Students() {
                   <div className="flex items-center gap-4">
                     <div className="flex h-16 w-16 items-center justify-center overflow-hidden rounded-full bg-indigo-100 text-indigo-700">
                       {form.photo_url ? (
-                        <img src={form.photo_url.startsWith('http') ? form.photo_url : `http://localhost:5000${form.photo_url}`} alt="Student avatar" className="h-full w-full object-cover" />
+                        <img src={form.photo_url && form.photo_url.startsWith('http') ? form.photo_url : assetUrl(form.photo_url)} alt="Student avatar" className="h-full w-full object-cover" />
                       ) : (
                         <UserRound size={24} />
                       )}
@@ -476,7 +476,7 @@ function Students() {
               <div className="flex items-center gap-3">
                 <div className="flex h-12 w-12 items-center justify-center overflow-hidden rounded-full bg-indigo-100 text-indigo-700">
                   {selectedStudent.photo_url ? (
-                    <img src={selectedStudent.photo_url.startsWith('http') ? selectedStudent.photo_url : `http://localhost:5000${selectedStudent.photo_url}`} alt={selectedStudent.name} className="h-full w-full object-cover" />
+                    <img src={selectedStudent.photo_url.startsWith('http') ? selectedStudent.photo_url : assetUrl(selectedStudent.photo_url)} alt={selectedStudent.name} className="h-full w-full object-cover" />
                   ) : (
                     <BadgeCheck size={20} />
                   )}
@@ -495,7 +495,7 @@ function Students() {
               <div className="rounded-3xl border border-slate-200 bg-slate-50 p-5 text-center">
                 <div className="mx-auto flex h-28 w-28 items-center justify-center overflow-hidden rounded-full bg-white shadow-inner">
                   {selectedStudent.photo_url ? (
-                    <img src={selectedStudent.photo_url.startsWith('http') ? selectedStudent.photo_url : `http://localhost:5000${selectedStudent.photo_url}`} alt={selectedStudent.name} className="h-full w-full object-cover" />
+                    <img src={selectedStudent.photo_url.startsWith('http') ? selectedStudent.photo_url : assetUrl(selectedStudent.photo_url)} alt={selectedStudent.name} className="h-full w-full object-cover" />
                   ) : (
                     <UserRound size={38} className="text-indigo-600" />
                   )}
