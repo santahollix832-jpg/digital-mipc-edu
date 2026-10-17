@@ -1,11 +1,12 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { apiFetch } from '../api/config';
+import { AUTH_API_BASE_URL, API_CLIENT_CONFIG } from '../api/config';
 
 const AuthContext = createContext(null);
 
 async function requestAuth(path, options = {}) {
-  const response = await apiFetch(`/auth${path}`, {
+  const response = await fetch(`${AUTH_API_BASE_URL}${path}`, {
     ...options,
+    credentials: API_CLIENT_CONFIG.withCredentials ? 'include' : 'same-origin',
     headers: {
       ...(options.body ? { 'Content-Type': 'application/json' } : {}),
       ...options.headers,

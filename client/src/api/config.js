@@ -1,5 +1,5 @@
 // Centralized API configuration — prefer VITE_API_URL in production
-const configuredHost = (import.meta.env.VITE_API_URL || 'http://localhost:5001')
+const configuredHost = (import.meta.env.VITE_API_URL || 'https://digital-mipc-edu.onrender.com')
   .replace(/\/+$/, '');
 
 // API_HOST is the host root (no trailing slash, no /api suffix)
@@ -9,6 +9,8 @@ export const API_HOST = configuredHost.replace(/\/api\/?$/, '');
 export const API_BASE_URL = configuredHost.endsWith('/api')
   ? configuredHost
   : `${configuredHost}/api`;
+
+export const AUTH_API_BASE_URL = `${API_BASE_URL}/auth`;
 
 export const API_CLIENT_CONFIG = Object.freeze({
   baseURL: API_BASE_URL,
