@@ -56,8 +56,14 @@ export function AuthProvider({ children }) {
     async login(username, password) {
       const result = await requestAuth('/login', {
         method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password }),
       });
+
+      if (result.success !== true || !result.user) {
+        throw new Error(result.error || 'Login response was invalid.');
+      }
+
       setUser(result.user);
       setAuthError('');
       return result.user;
