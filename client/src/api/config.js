@@ -36,6 +36,30 @@ export function apiFetch(path, options = {}) {
   });
 }
 
+export async function safeJsonResponse(response) {
+  if (!response) return null;
+
+  const contentType = (response.headers.get('content-type') || '').toLowerCase();
+  const rawText = await response.text();
+
+  if (!rawText || !rawText.trim()) {
+    return null;
+  }
+
+  const trimmed = rawText.trim();
+  const isJsonLike = contentType.includes('application/json') || trimmed.startsWith('{') || trimmed.startsWith('[');
+
+  if (!isJsonLike) {
+    return trimmed;
+  }
+
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return { raw: rawText };
+  }
+}
+
 // Return a fully-qualified URL for assets served from the backend (uploads, public files)
 export function assetUrl(filePath) {
   if (!filePath) return '';

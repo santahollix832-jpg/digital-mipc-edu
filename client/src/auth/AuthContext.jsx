@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
-import { AUTH_API_BASE_URL, API_CLIENT_CONFIG } from '../api/config';
+import { AUTH_API_BASE_URL, API_CLIENT_CONFIG, safeJsonResponse } from '../api/config';
 
 const AuthContext = createContext(null);
 
@@ -12,14 +12,17 @@ async function requestAuth(path, options = {}) {
       ...options.headers,
     },
   });
-  const result = await response.json();
+  const result = await safeJsonResponse(response);
 
   if (!response.ok) {
-    const error = new Error(result.error || 'Authentication request failed.');
+    const errorMessage = typeof result === 'string'
+      ? result
+      : result?.error || 'Authentication request failed.';
+    const error = new Error(errorMessage);
     error.status = response.status;
     throw error;
   }
-  return result;
+  return result ?? {};
 }
 
 export function AuthProvider({ children }) {
