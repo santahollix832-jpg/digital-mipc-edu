@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { BadgeCheck, ChevronLeft, ChevronRight, PencilLine, Plus, Search, Trash2, UserRound, X } from 'lucide-react';
+import { BadgeCheck, BedDouble, ChevronLeft, ChevronRight, PencilLine, Plus, Search, Sparkles, Sun, Trash2, UserRound, UsersRound, X } from 'lucide-react';
 import { apiFetch, assetUrl } from '../api/config';
 import { useToast } from './ToastProvider';
+import './Students.css';
 
 const PAGE_SIZE = 7;
 const emptyForm = {
@@ -21,6 +22,7 @@ function Students() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [classFilter, setClassFilter] = useState('All');
+  const [statusFilter, setStatusFilter] = useState('All');
   const [page, setPage] = useState(1);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [form, setForm] = useState(emptyForm);
@@ -50,7 +52,7 @@ function Students() {
           reg_number: student.reg_number || student.regNo || 'N/A',
           class_name: student.class_name || student.className || student.class || 'N/A',
           gender: student.gender || 'Unknown',
-          status: student.status || 'Boarding',
+          status: student.status === 'Day Scholar' ? 'Day Scholar' : 'Boarding',
           photo_url: student.photo_url || student.photoUrl || '',
         }))
       );
@@ -66,6 +68,11 @@ function Students() {
     () => ['All', ...new Set(students.map((student) => student.class_name).filter(Boolean))],
     [students]
   );
+  const boardingCount = students.filter((student) => student.status === 'Boarding').length;
+  const dayScholarCount = students.filter((student) => student.status === 'Day Scholar').length;
+  const boardingShare = students.length
+    ? Math.round((boardingCount / students.length) * 100)
+    : 0;
 
   const filteredStudents = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -74,16 +81,17 @@ function Students() {
         student.name.toLowerCase().includes(query) ||
         student.reg_number.toLowerCase().includes(query);
       const matchesClass = classFilter === 'All' || student.class_name === classFilter;
-      return matchesSearch && matchesClass;
+      const matchesStatus = statusFilter === 'All' || student.status === statusFilter;
+      return matchesSearch && matchesClass && matchesStatus;
     });
-  }, [students, search, classFilter]);
+  }, [students, search, classFilter, statusFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filteredStudents.length / PAGE_SIZE));
   const visibleStudents = filteredStudents.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   useEffect(() => {
     setPage(1);
-  }, [search, classFilter]);
+  }, [search, classFilter, statusFilter]);
 
   function openCreateModal() {
     setForm(emptyForm);
@@ -225,40 +233,120 @@ function Students() {
   }
 
   return (
-    <main className="p-6 md:p-10">
-      <header className="mb-8 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-        <div>
-          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-indigo-600">Student directory</p>
-          <h1 className="mt-2 text-3xl font-bold text-slate-900">Enterprise students management</h1>
+    <main className="students-page">
+      <div className="students-page__glow students-page__glow--one" aria-hidden="true" />
+      <div className="students-page__glow students-page__glow--two" aria-hidden="true" />
+      <div className="students-page__content">
+      <header className="students-header">
+        <div className="students-heading">
+          <p className="students-eyebrow"><span className="students-live-dot" /> STUDENT INTELLIGENCE / 01</p>
+          <h1>Student directory<span>.</span></h1>
+          <p className="students-heading__subtext">A live overview of your school community.</p>
         </div>
+        <div className="students-header__actions">
+          <span className="students-live-label"><span className="students-live-dot" /> LIVE ROSTER</span>
         <button
           type="button"
           onClick={openCreateModal}
-          className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 font-semibold text-white shadow-lg shadow-indigo-500/20 transition hover:bg-indigo-500"
+          className="students-primary-btn"
         >
           <Plus size={18} />
-          Add New Student
+          Add student
         </button>
+        </div>
       </header>
 
-      <section className="mb-6 rounded-3xl border border-slate-200 bg-white p-4 shadow-[0_20px_45px_rgba(15,23,42,0.03)]">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div className="relative w-full max-w-lg">
-            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+      <section className="students-overview" aria-label="Student population summary">
+        <button
+          type="button"
+          aria-pressed={statusFilter === 'Boarding'}
+          onClick={() => setStatusFilter(statusFilter === 'Boarding' ? 'All' : 'Boarding')}
+          className={`students-stat-card students-stat-card--boarding ${statusFilter === 'Boarding' ? 'is-selected' : ''}`}
+        >
+          <span className="students-stat-card__top">
+            <span className="students-stat-card__icon"><BedDouble size={19} /></span>
+            <span className="students-stat-card__filter">{statusFilter === 'Boarding' ? 'FILTER ON' : 'VIEW GROUP'} <ChevronRight size={13} /></span>
+          </span>
+          <span className="students-stat-card__label">Boarding students</span>
+          <span className="students-stat-card__value">{loading ? '—' : boardingCount.toLocaleString()}</span>
+          <span className="students-stat-card__foot">{boardingShare}% of the current roster</span>
+        </button>
+
+        <button
+          type="button"
+          aria-pressed={statusFilter === 'Day Scholar'}
+          onClick={() => setStatusFilter(statusFilter === 'Day Scholar' ? 'All' : 'Day Scholar')}
+          className={`students-stat-card students-stat-card--day ${statusFilter === 'Day Scholar' ? 'is-selected' : ''}`}
+        >
+          <span className="students-stat-card__top">
+            <span className="students-stat-card__icon"><Sun size={19} /></span>
+            <span className="students-stat-card__filter">{statusFilter === 'Day Scholar' ? 'FILTER ON' : 'VIEW GROUP'} <ChevronRight size={13} /></span>
+          </span>
+          <span className="students-stat-card__label">Day Scholar students</span>
+          <span className="students-stat-card__value">{loading ? '—' : dayScholarCount.toLocaleString()}</span>
+          <span className="students-stat-card__foot">{students.length ? `${100 - boardingShare}% of the current roster` : 'No roster data yet'}</span>
+        </button>
+
+        <section className="students-mix-card" aria-label="Student status distribution">
+          <div className="students-mix-card__heading">
+            <div>
+              <span className="students-section-kicker">ROSTER COMPOSITION</span>
+              <h2>Student mix</h2>
+            </div>
+            <span className="students-mix-card__badge"><Sparkles size={14} /> LIVE</span>
+          </div>
+          <div className="students-mix-card__body">
+            <div
+              className="students-donut"
+              style={{ '--boarding-share': `${boardingShare}%` }}
+              role="img"
+              aria-label={`${boardingCount} Boarding students and ${dayScholarCount} Day Scholar students`}
+            >
+              <span className="students-donut__center">
+                <strong>{loading ? '—' : students.length.toLocaleString()}</strong>
+                <small>TOTAL</small>
+              </span>
+            </div>
+            <div className="students-mix-legend">
+              <button type="button" onClick={() => setStatusFilter(statusFilter === 'Boarding' ? 'All' : 'Boarding')} aria-pressed={statusFilter === 'Boarding'}>
+                <span className="students-mix-legend__label"><i className="students-mix-legend__dot students-mix-legend__dot--boarding" /> Boarding</span>
+                <strong>{boardingCount.toLocaleString()}</strong>
+              </button>
+              <button type="button" onClick={() => setStatusFilter(statusFilter === 'Day Scholar' ? 'All' : 'Day Scholar')} aria-pressed={statusFilter === 'Day Scholar'}>
+                <span className="students-mix-legend__label"><i className="students-mix-legend__dot students-mix-legend__dot--day" /> Day Scholar</span>
+                <strong>{dayScholarCount.toLocaleString()}</strong>
+              </button>
+              <button type="button" className="students-mix-legend__all" onClick={() => setStatusFilter('All')} aria-pressed={statusFilter === 'All'}>
+                <span className="students-mix-legend__label"><UsersRound size={14} /> All students</span>
+                <strong>{students.length.toLocaleString()}</strong>
+              </button>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section className="students-toolbar">
+        <div className="students-toolbar__title">
+          <span className="students-toolbar__icon"><UsersRound size={18} /></span>
+          <div>
+            <h2>Student roster</h2>
+            <p>{statusFilter === 'All' ? 'Browse and manage students' : `Showing ${statusFilter} students`}</p>
+          </div>
+        </div>
+        <div className="students-toolbar__filters">
+          <label className="students-search">
+            <Search size={16} aria-hidden="true" />
             <input
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               placeholder="Search by name or registration number"
-              className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-sm outline-none transition focus:border-indigo-400 focus:bg-white"
             />
-          </div>
-
-          <label className="flex items-center gap-2 text-sm font-medium text-slate-700">
-            <span>Class</span>
+          </label>
+          <label className="students-class-filter">
+            <span>CLASS</span>
             <select
               value={classFilter}
               onChange={(event) => setClassFilter(event.target.value)}
-              className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:bg-white"
             >
               {classOptions.map((option) => (
                 <option key={option} value={option}>{option === 'All' ? 'All classes' : option}</option>
