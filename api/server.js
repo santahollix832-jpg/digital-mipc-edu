@@ -32,8 +32,14 @@ if (!fs.existsSync(publicDir)) {
 // ==========================================
 // 🗄️ MIDDLEWARES
 // ==========================================
-const allowedOrigins = (process.env.CLIENT_ORIGIN || 'http://localhost:5173')
-  .split(',')
+const allowedOrigins = [
+  'https://digital-mipc-edu.vercel.app',
+  'http://localhost:3000',
+  'http://localhost:4173',
+  'http://localhost:5173',
+  'http://localhost:5174',
+  ...(process.env.CLIENT_ORIGIN || '').split(','),
+]
   .map(origin => origin.trim())
   .filter(Boolean);
 app.use(cors({

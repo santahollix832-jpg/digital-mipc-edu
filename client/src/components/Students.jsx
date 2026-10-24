@@ -10,7 +10,7 @@ const emptyForm = {
   reg_number: '',
   class_name: '',
   gender: 'Female',
-  status: 'Active',
+  status: 'Boarding',
   photo_url: '',
   photo_file: null,
 };
@@ -50,7 +50,7 @@ function Students() {
           reg_number: student.reg_number || student.regNo || 'N/A',
           class_name: student.class_name || student.className || student.class || 'N/A',
           gender: student.gender || 'Unknown',
-          status: student.status || 'Active',
+          status: student.status || 'Boarding',
           photo_url: student.photo_url || student.photoUrl || '',
         }))
       );
@@ -97,7 +97,7 @@ function Students() {
       reg_number: student.reg_number,
       class_name: student.class_name,
       gender: student.gender,
-      status: student.status,
+      status: ['Boarding', 'Day Scholar'].includes(student.status) ? student.status : 'Boarding',
       photo_url: student.photo_url || '',
       photo_file: null,
     });
@@ -138,7 +138,7 @@ function Students() {
       formData.append('reg_number', form.reg_number);
       formData.append('class_name', form.class_name);
       formData.append('gender', form.gender);
-      formData.append('status', form.status || 'Active');
+      formData.append('status', form.status || 'Boarding');
       if (form.photo_url && !form.photo_file && form.photo_url.startsWith('http')) {
         formData.append('photo_url', form.photo_url);
       }
@@ -162,7 +162,7 @@ function Students() {
         reg_number: form.reg_number,
         class_name: form.class_name,
         gender: form.gender,
-        status: form.status || 'Active',
+        status: form.status || 'Boarding',
         photo_url: form.photo_url || '',
       };
 
@@ -176,7 +176,7 @@ function Students() {
                   reg_number: student.reg_number || form.reg_number,
                   class_name: student.class_name || form.class_name,
                   gender: student.gender || form.gender,
-                  status: student.status || form.status || 'Active',
+                  status: student.status || form.status || 'Boarding',
                   photo_url: student.photo_url || entry.photo_url || '',
                 }
               : entry
@@ -190,7 +190,7 @@ function Students() {
           reg_number: student.reg_number || form.reg_number,
           class_name: student.class_name || form.class_name,
           gender: student.gender || form.gender,
-          status: student.status || form.status || 'Active',
+          status: student.status || form.status || 'Boarding',
           photo_url: student.photo_url || '',
         }, ...current]);
         notify('New student added to the directory.', 'success');
@@ -311,8 +311,8 @@ function Students() {
                     <td className="px-5 py-4">{student.class_name}</td>
                     <td className="px-5 py-4">{student.gender}</td>
                     <td className="px-5 py-4">
-                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${student.status === 'Active' ? 'border border-emerald-200 bg-emerald-100 text-emerald-700' : 'border border-amber-200 bg-amber-100 text-amber-700'}`}>
-                        {student.status || 'Active'}
+                      <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${student.status === 'Boarding' ? 'border border-emerald-200 bg-emerald-100 text-emerald-700' : 'border border-amber-200 bg-amber-100 text-amber-700'}`}>
+                        {student.status || 'Boarding'}
                       </span>
                     </td>
                     <td className="px-5 py-4">
@@ -451,8 +451,8 @@ function Students() {
               <label className="block md:col-span-2">
                 <span className="mb-2 block text-sm font-medium text-slate-700">Status</span>
                 <select name="status" value={form.status} onChange={handleFormChange} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-indigo-400 focus:bg-white">
-                  <option value="Active">Active</option>
-                  <option value="Inactive">Inactive</option>
+                  <option value="Boarding">Boarding</option>
+                  <option value="Day Scholar">Day Scholar</option>
                 </select>
               </label>
 
@@ -503,7 +503,7 @@ function Students() {
                 <h3 className="mt-4 text-2xl font-bold text-slate-900">{selectedStudent.name}</h3>
                 <p className="mt-1 text-sm text-slate-500">{selectedStudent.reg_number}</p>
                 <div className="mt-4 inline-flex rounded-full border border-emerald-200 bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
-                  {selectedStudent.status || 'Active'}
+                  {selectedStudent.status || 'Boarding'}
                 </div>
               </div>
 
@@ -523,7 +523,7 @@ function Students() {
                   </div>
                   <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                     <p className="text-slate-500">Status</p>
-                    <p className="mt-1 font-semibold text-slate-900">{selectedStudent.status || 'Active'}</p>
+                    <p className="mt-1 font-semibold text-slate-900">{selectedStudent.status || 'Boarding'}</p>
                   </div>
                 </div>
 
