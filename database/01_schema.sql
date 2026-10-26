@@ -54,7 +54,9 @@ CREATE TABLE permissions (
     student_id INT REFERENCES students(id) ON DELETE CASCADE,
     reason TEXT NOT NULL,
     leave_timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    return_timestamp TIMESTAMP NOT NULL,
+    departure_time TIMESTAMP NULL,
+    return_timestamp TIMESTAMP NULL,
+    expected_return_time TIMESTAMP NULL,
     actual_return_timestamp TIMESTAMP NULL,
     status VARCHAR(20) DEFAULT 'Approved',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

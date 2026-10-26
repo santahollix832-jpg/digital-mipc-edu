@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Check, ChevronLeft, ChevronRight, CircleX, Filter, Search, X } from 'lucide-react';
+import { AlertTriangle, Check, ChevronLeft, ChevronRight, CircleX, Clock3, Filter, Search } from 'lucide-react';
 import { apiFetch } from '../api/config';
 import { useToast } from './ToastProvider';
 
@@ -9,52 +9,91 @@ const emptyForm = {
   reason: '',
   start_date: '',
   end_date: '',
+  departure_time: '',
+  expected_return_time: '',
   status: 'Pending',
 };
 
 const statusStyles = {
   Pending: 'bg-amber-100 text-amber-700 border border-amber-200',
   Approved: 'bg-emerald-100 text-emerald-700 border border-emerald-200',
+  Overdue: 'bg-red-100 text-red-700 border border-red-200',
   Rejected: 'bg-rose-100 text-rose-700 border border-rose-200',
+  Returned: 'bg-sky-100 text-sky-700 border border-sky-200',
 };
 
 const PAGE_SIZE = 6;
 
+function isOverdueRequest(request) {
+  const rawStatus = String(request.status || '').toLowerCase();
+  if (rawStatus === 'rejected' || rawStatus === 'returned') return false;
+  if (rawStatus === 'overdue') return true;
+
+  const timeoutValue = request.expected_return_time || request.return_timestamp || request.end_date || request.expectedReturnTime || request.returnTimestamp;
+  if (!timeoutValue) return false;
+
+  const deadline = new Date(timeoutValue).getTime();
+  if (Number.isNaN(deadline)) return false;
+
+  return deadline < Date.now() && rawStatus !== 'pending';
+}
+
+function formatValue(value) {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' });
+}
+
 function Permissions() {
   const { notify } = useToast();
   const [requests, setRequests] = useState([]);
+  const [overdueCount, setOverdueCount] = useState(0);
   const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [statusFilter, setStatusFilter] = useState('All');
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  const [overviewTab, setOverviewTab] = useState('all');
 
   useEffect(() => {
     loadRequests();
+    const interval = setInterval(() => loadRequests(true), 60000);
+    return () => clearInterval(interval);
   }, []);
 
-  async function loadRequests() {
+  async function loadRequests(silent = false) {
     try {
-      setLoading(true);
-      const response = await apiFetch('/permissions');
-      if (!response.ok) {
-        throw new Error('Permissions request failed.');
-      }
-      const payload = await response.json();
+      if (!silent) setLoading(true);
+      const [permissionResponse, overdueResponse] = await Promise.all([
+        apiFetch('/permissions'),
+        apiFetch('/permissions/overdue'),
+      ]);
+
+      if (!permissionResponse.ok) throw new Error('Permissions request failed.');
+      const payload = await permissionResponse.json();
       const items = Array.isArray(payload) ? payload : payload.data || [];
-      setRequests(items.map((item) => ({
+      const normalized = items.map((item) => ({
         id: item.id || item._id || `${item.student_name}-${item.start_date || item.created_at}`,
         student_name: item.student_name || item.studentName || 'Unknown student',
         class_name: item.class_name || item.className || 'Unassigned',
         reason: item.reason || 'No reason provided',
-        start_date: item.start_date || item.startDate || '',
-        end_date: item.end_date || item.endDate || '',
+        start_date: item.start_date || item.startDate || item.leave_timestamp || '',
+        end_date: item.end_date || item.endDate || item.expected_return_time || item.return_timestamp || '',
+        departure_time: item.departure_time || item.departureTime || item.leave_timestamp || '',
+        expected_return_time: item.expected_return_time || item.expectedReturnTime || item.return_timestamp || '',
         status: item.status || 'Pending',
-      })));
+      }));
+
+      setRequests(normalized);
+
+      const overduePayload = await overdueResponse.json().catch(() => []);
+      const overdueItems = Array.isArray(overduePayload) ? overduePayload : overduePayload.data || [];
+      setOverdueCount(Array.isArray(overdueItems) ? overdueItems.length : overduePayload?.length || 0);
     } catch (error) {
       console.error(error);
-      notify('Unable to load permission requests.', 'error');
+      if (!silent) notify('Unable to load permission requests.', 'error');
     } finally {
       setLoading(false);
     }
@@ -63,7 +102,12 @@ function Permissions() {
   const filteredRequests = useMemo(() => {
     const query = search.trim().toLowerCase();
     return requests.filter((request) => {
-      const matchesStatus = statusFilter === 'All' || request.status === statusFilter;
+      const matchesStatus = statusFilter === 'All'
+        ? true
+        : statusFilter === 'Overdue'
+          ? request.status === 'Overdue' || isOverdueRequest(request)
+          : request.status === statusFilter;
+
       const matchesSearch = !query ||
         request.student_name.toLowerCase().includes(query) ||
         request.class_name.toLowerCase().includes(query) ||
@@ -72,8 +116,24 @@ function Permissions() {
     });
   }, [requests, statusFilter, search]);
 
+  const onTimeRequests = useMemo(
+    () => requests.filter((request) => !isOverdueRequest(request) && request.status !== 'Rejected' && request.status !== 'Pending'),
+    [requests]
+  );
+
+  const overdueRequests = useMemo(
+    () => requests.filter((request) => isOverdueRequest(request) || request.status === 'Overdue'),
+    [requests]
+  );
+
   const totalPages = Math.max(1, Math.ceil(filteredRequests.length / PAGE_SIZE));
   const currentItems = filteredRequests.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  const overviewItems = useMemo(() => {
+    if (overviewTab === 'on_time') return onTimeRequests;
+    if (overviewTab === 'overdue') return overdueRequests;
+    return requests;
+  }, [overviewTab, onTimeRequests, overdueRequests, requests]);
 
   useEffect(() => {
     setPage(1);
@@ -86,8 +146,8 @@ function Permissions() {
 
   async function handleSubmit(event) {
     event.preventDefault();
-    if (!form.student_name || !form.class_name || !form.reason || !form.start_date || !form.end_date) {
-      notify('Please complete all permission fields before submitting.', 'warning');
+    if (!form.student_name || !form.class_name || !form.reason || !form.start_date || !form.end_date || !form.departure_time || !form.expected_return_time) {
+      notify('Please complete departure and expected return times before submitting.', 'warning');
       return;
     }
 
@@ -99,6 +159,8 @@ function Permissions() {
         reason: form.reason,
         start_date: form.start_date,
         end_date: form.end_date,
+        departure_time: form.departure_time,
+        expected_return_time: form.expected_return_time,
         status: form.status,
       };
 
@@ -120,6 +182,8 @@ function Permissions() {
         reason: payload.reason,
         start_date: payload.start_date,
         end_date: payload.end_date,
+        departure_time: payload.departure_time,
+        expected_return_time: payload.expected_return_time,
         status: payload.status,
       }, ...current]);
       setForm(emptyForm);
@@ -155,16 +219,23 @@ function Permissions() {
   }
 
   return (
-    <main className="p-6 md:p-10">
+    <main className="p-4 md:p-8 xl:p-10">
       <header className="mb-8 flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
         <div>
           <p className="text-sm font-semibold uppercase tracking-[0.18em] text-indigo-600">Permission center</p>
           <h1 className="mt-2 text-3xl font-bold text-slate-900">Leave management</h1>
         </div>
+
+        {overdueCount > 0 && (
+          <div className="inline-flex items-center gap-2 rounded-full border border-red-200 bg-red-50 px-3 py-2 text-sm font-semibold text-red-700 shadow-sm">
+            <AlertTriangle size={16} className="text-red-600" />
+            {overdueCount} Overdue student{overdueCount > 1 ? 's' : ''}
+          </div>
+        )}
       </header>
 
-      <section className="mb-8 grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_45px_rgba(15,23,42,0.06)]">
+      <section className="mb-8 grid gap-6 xl:grid-cols-[1.12fr_0.88fr]">
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_20px_45px_rgba(15,23,42,0.06)] md:p-6">
           <div className="mb-5 flex items-center justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-slate-500">Request form</p>
@@ -180,7 +251,7 @@ function Permissions() {
                 value={form.student_name}
                 onChange={handleInputChange}
                 placeholder="Aisha Mutesa"
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-indigo-400 focus:bg-white"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:bg-white"
               />
             </label>
 
@@ -191,7 +262,7 @@ function Permissions() {
                 value={form.class_name}
                 onChange={handleInputChange}
                 placeholder="S4A"
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-indigo-400 focus:bg-white"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:bg-white"
               />
             </label>
 
@@ -203,7 +274,29 @@ function Permissions() {
                 onChange={handleInputChange}
                 rows="3"
                 placeholder="Provide a short explanation for the leave request"
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-indigo-400 focus:bg-white"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:bg-white"
+              />
+            </label>
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-medium text-slate-700">Departure Time</span>
+              <input
+                type="datetime-local"
+                name="departure_time"
+                value={form.departure_time}
+                onChange={handleInputChange}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:bg-white"
+              />
+            </label>
+
+            <label className="block">
+              <span className="mb-2 block text-sm font-medium text-slate-700">Expected Return Time</span>
+              <input
+                type="datetime-local"
+                name="expected_return_time"
+                value={form.expected_return_time}
+                onChange={handleInputChange}
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:bg-white"
               />
             </label>
 
@@ -214,7 +307,7 @@ function Permissions() {
                 name="start_date"
                 value={form.start_date}
                 onChange={handleInputChange}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-indigo-400 focus:bg-white"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:bg-white"
               />
             </label>
 
@@ -225,7 +318,7 @@ function Permissions() {
                 name="end_date"
                 value={form.end_date}
                 onChange={handleInputChange}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-indigo-400 focus:bg-white"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:bg-white"
               />
             </label>
 
@@ -235,7 +328,7 @@ function Permissions() {
                 name="status"
                 value={form.status}
                 onChange={handleInputChange}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-indigo-400 focus:bg-white"
+                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:bg-white"
               >
                 <option value="Pending">Pending</option>
                 <option value="Approved">Approved</option>
@@ -255,25 +348,68 @@ function Permissions() {
           </form>
         </div>
 
-        <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-indigo-600 via-violet-600 to-sky-600 p-6 text-white shadow-[0_20px_45px_rgba(67,56,202,0.28)]">
+        <div className="rounded-3xl border border-slate-200 bg-gradient-to-br from-indigo-600 via-violet-600 to-sky-600 p-5 text-white shadow-[0_20px_45px_rgba(67,56,202,0.28)] md:p-6">
           <p className="text-sm font-semibold uppercase tracking-[0.18em] text-indigo-100">Overview</p>
-          <h2 className="mt-3 text-3xl font-bold">{requests.filter((item) => item.status === 'Pending').length}</h2>
-          <p className="mt-2 text-indigo-100">Pending requests awaiting review</p>
 
-          <div className="mt-8 space-y-3">
+          <div className="mt-5 flex flex-wrap gap-2">
+            {[
+              { id: 'all', label: 'All' },
+              { id: 'on_time', label: 'On Time' },
+              { id: 'overdue', label: 'Late Return' },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setOverviewTab(tab.id)}
+                className={`rounded-full px-3 py-1.5 text-sm font-medium transition ${
+                  overviewTab === tab.id
+                    ? 'bg-white text-indigo-700 shadow-md'
+                    : 'bg-white/10 text-indigo-50 hover:bg-white/15'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="mt-6 grid gap-3">
             <div className="rounded-2xl bg-white/10 p-3 backdrop-blur-sm">
-              <p className="text-sm text-indigo-100">Approved</p>
-              <p className="mt-1 text-xl font-semibold">{requests.filter((item) => item.status === 'Approved').length}</p>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-indigo-100">On Time</span>
+                <span className="rounded-full bg-emerald-400/20 px-2 py-0.5 text-xs font-semibold text-emerald-50">{onTimeRequests.length}</span>
+              </div>
             </div>
             <div className="rounded-2xl bg-white/10 p-3 backdrop-blur-sm">
-              <p className="text-sm text-indigo-100">Rejected</p>
-              <p className="mt-1 text-xl font-semibold">{requests.filter((item) => item.status === 'Rejected').length}</p>
+              <div className="flex items-center justify-between">
+                <span className="text-sm text-indigo-100">Overdue</span>
+                <span className="rounded-full bg-red-400/20 px-2 py-0.5 text-xs font-semibold text-red-50">{overdueRequests.length}</span>
+              </div>
             </div>
+          </div>
+
+          <div className="mt-6 space-y-3">
+            {overviewItems.slice(0, 3).map((item) => (
+              <div key={item.id} className="rounded-2xl bg-white/10 p-3 backdrop-blur-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-semibold text-white">{item.student_name}</p>
+                    <p className="text-xs text-indigo-100">{item.class_name}</p>
+                  </div>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${isOverdueRequest(item) ? 'bg-red-400/20 text-red-50' : 'bg-emerald-400/20 text-emerald-50'}`}>
+                    {isOverdueRequest(item) ? 'Late Return' : 'On Time'}
+                  </span>
+                </div>
+                <div className="mt-2 flex items-center gap-2 text-xs text-indigo-100">
+                  <Clock3 size={12} />
+                  {formatValue(item.expected_return_time || item.end_date)}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
 
-      <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_45px_rgba(15,23,42,0.04)]">
+      <section className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_20px_45px_rgba(15,23,42,0.04)] md:p-6">
         <div className="mb-5 flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-slate-500">Records</p>
@@ -300,6 +436,7 @@ function Permissions() {
                 <option value="All">All status</option>
                 <option value="Pending">Pending</option>
                 <option value="Approved">Approved</option>
+                <option value="Overdue">Overdue</option>
                 <option value="Rejected">Rejected</option>
               </select>
             </div>
@@ -325,54 +462,60 @@ function Permissions() {
                     <th className="px-4 py-3 font-semibold">Student</th>
                     <th className="px-4 py-3 font-semibold">Class</th>
                     <th className="px-4 py-3 font-semibold">Reason</th>
-                    <th className="px-4 py-3 font-semibold">Dates</th>
+                    <th className="px-4 py-3 font-semibold">Departure / Return</th>
                     <th className="px-4 py-3 font-semibold">Status</th>
                     <th className="px-4 py-3 font-semibold text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 bg-white">
-                  {currentItems.map((request) => (
-                    <tr key={request.id} className="align-top transition hover:bg-slate-50">
-                      <td className="px-4 py-4">
-                        <div className="font-semibold text-slate-900">{request.student_name}</div>
-                      </td>
-                      <td className="px-4 py-4">{request.class_name}</td>
-                      <td className="px-4 py-4 max-w-sm text-slate-600">{request.reason}</td>
-                      <td className="px-4 py-4">
-                        <div>{request.start_date || '—'}</div>
-                        <div className="text-slate-500">to {request.end_date || '—'}</div>
-                      </td>
-                      <td className="px-4 py-4">
-                        <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyles[request.status] || statusStyles.Pending}`}>
-                          {request.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-4">
-                        <div className="flex justify-end gap-2">
-                          {request.status !== 'Approved' && (
-                            <button
-                              type="button"
-                              onClick={() => updateStatus(request.id, 'Approved')}
-                              className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500"
-                            >
-                              <Check size={12} />
-                              Approve
-                            </button>
-                          )}
-                          {request.status !== 'Rejected' && (
-                            <button
-                              type="button"
-                              onClick={() => updateStatus(request.id, 'Rejected')}
-                              className="inline-flex items-center gap-1 rounded-lg bg-rose-600 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-500"
-                            >
-                              <CircleX size={12} />
-                              Reject
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
+                  {currentItems.map((request) => {
+                    const isLate = isOverdueRequest(request);
+                    return (
+                      <tr key={request.id} className="align-top transition hover:bg-slate-50">
+                        <td className="px-4 py-4">
+                          <div className="font-semibold text-slate-900">{request.student_name}</div>
+                        </td>
+                        <td className="px-4 py-4">{request.class_name}</td>
+                        <td className="px-4 py-4 max-w-sm text-slate-600">{request.reason}</td>
+                        <td className="px-4 py-4">
+                          <div>{formatValue(request.departure_time || request.start_date)}</div>
+                          <div className={`mt-1 inline-flex items-center gap-1 text-xs font-medium ${isLate ? 'text-red-600' : 'text-slate-500'}`}>
+                            <Clock3 size={12} />
+                            {formatValue(request.expected_return_time || request.end_date)}
+                          </div>
+                        </td>
+                        <td className="px-4 py-4">
+                          <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyles[request.status] || statusStyles.Pending}`}>
+                            {request.status === 'Approved' && isLate ? 'Overdue' : request.status}
+                          </span>
+                        </td>
+                        <td className="px-4 py-4">
+                          <div className="flex justify-end gap-2">
+                            {request.status !== 'Approved' && (
+                              <button
+                                type="button"
+                                onClick={() => updateStatus(request.id, 'Approved')}
+                                className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-emerald-500"
+                              >
+                                <Check size={12} />
+                                Approve
+                              </button>
+                            )}
+                            {request.status !== 'Rejected' && (
+                              <button
+                                type="button"
+                                onClick={() => updateStatus(request.id, 'Rejected')}
+                                className="inline-flex items-center gap-1 rounded-lg bg-rose-600 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-rose-500"
+                              >
+                                <CircleX size={12} />
+                                Reject
+                              </button>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>

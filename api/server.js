@@ -85,6 +85,9 @@ async function ensureDatabaseSchema() {
   await pool.query("ALTER TABLE students ADD COLUMN IF NOT EXISTS photo_url VARCHAR(255) DEFAULT 'default.png';");
   await pool.query("ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'present';");
   await pool.query('ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS device_id VARCHAR(50);');
+  await pool.query('ALTER TABLE permissions ADD COLUMN IF NOT EXISTS departure_time TIMESTAMP;');
+  await pool.query('ALTER TABLE permissions ADD COLUMN IF NOT EXISTS expected_return_time TIMESTAMP;');
+  await pool.query('ALTER TABLE permissions ADD COLUMN IF NOT EXISTS actual_return_timestamp TIMESTAMP;');
   await pool.query(`
     CREATE TABLE IF NOT EXISTS discipline_incidents (
       id SERIAL PRIMARY KEY,
@@ -134,10 +137,23 @@ app.get('/api/permissions', requireRoles('ADMIN', 'PATRON', 'TEACHER'), (req, re
 
 app.post('/api/permissions', requireRoles('ADMIN', 'PATRON', 'TEACHER'), (req, res) => {
   try {
-    const { student_name, class_name, reason, start_date, end_date, status } = req.body;
+    const {
+      student_name,
+      class_name,
+      reason,
+      start_date,
+      end_date,
+      departure_time,
+      expected_return_time,
+      status,
+    } = req.body;
+
     if (!student_name || !class_name || !reason || !start_date || !end_date) {
       return res.status(400).json({ success: false, error: 'Please complete all permission fields.' });
     }
+
+    const normalizedDepartureTime = departure_time || start_date;
+    const normalizedExpectedReturnTime = expected_return_time || end_date;
 
     const request = {
       id: permissionRequestId++,
@@ -146,6 +162,8 @@ app.post('/api/permissions', requireRoles('ADMIN', 'PATRON', 'TEACHER'), (req, r
       reason,
       start_date,
       end_date,
+      departure_time: normalizedDepartureTime,
+      expected_return_time: normalizedExpectedReturnTime,
       status: status || 'Pending',
       created_at: new Date().toISOString(),
     };
@@ -167,7 +185,7 @@ app.patch('/api/permissions/:id/status', requireRoles('ADMIN', 'PATRON', 'TEACHE
     return res.status(404).json({ success: false, error: 'Permission request not found.' });
   }
 
-  if (!status || !['Pending', 'Approved', 'Rejected'].includes(status)) {
+  if (!status || !['Pending', 'Approved', 'Rejected', 'Overdue', 'Returned'].includes(status)) {
     return res.status(400).json({ success: false, error: 'Invalid permission status.' });
   }
 
