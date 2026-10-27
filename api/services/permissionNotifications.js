@@ -71,13 +71,14 @@ async function deliverWhatsApp(recipient, eventType, permission) {
   const {
     META_WHATSAPP_ACCESS_TOKEN,
     META_WHATSAPP_PHONE_NUMBER_ID,
-    META_WHATSAPP_GRAPH_VERSION = 'v21.0',
+    META_WHATSAPP_GRAPH_VERSION,
     META_WHATSAPP_TEMPLATE_APPROVED,
     META_WHATSAPP_TEMPLATE_OVERDUE,
     META_WHATSAPP_TEMPLATE_LANGUAGE = 'en',
   } = process.env;
-  if (!META_WHATSAPP_ACCESS_TOKEN || !META_WHATSAPP_PHONE_NUMBER_ID) {
-    throw new Error('META_WHATSAPP_ACCESS_TOKEN and META_WHATSAPP_PHONE_NUMBER_ID must be configured.');
+  if (!META_WHATSAPP_ACCESS_TOKEN || !META_WHATSAPP_PHONE_NUMBER_ID ||
+      !/^v\d+\.\d+$/.test(META_WHATSAPP_GRAPH_VERSION || '')) {
+    throw new Error('META_WHATSAPP_ACCESS_TOKEN, META_WHATSAPP_PHONE_NUMBER_ID, and a valid META_WHATSAPP_GRAPH_VERSION must be configured.');
   }
 
   const templateName = eventType === 'overdue'
@@ -139,7 +140,11 @@ async function dispatchDelivery(delivery, content) {
     await deliverSms(delivery.recipient, content);
     return;
   }
-  await deliverWhatsApp(delivery.recipient, delivery.event_type, delivery);
+  if (delivery.channel === 'whatsapp') {
+    await deliverWhatsApp(delivery.recipient, delivery.event_type, delivery);
+    return;
+  }
+  throw new Error(`Unsupported notification channel: ${delivery.channel}`);
 }
 
 async function dispatchPendingNotifications(filter = {}) {

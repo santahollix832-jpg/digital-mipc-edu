@@ -93,7 +93,7 @@ async function ensureDatabaseSchema() {
       id BIGSERIAL PRIMARY KEY,
       permission_id INT REFERENCES permissions(id) ON DELETE CASCADE,
       event_type VARCHAR(30) NOT NULL,
-      channel VARCHAR(10) NOT NULL CHECK (channel IN ('email', 'sms')),
+      channel VARCHAR(10) NOT NULL CHECK (channel IN ('email', 'sms', 'whatsapp')),
       recipient VARCHAR(254) NOT NULL,
       status VARCHAR(20) NOT NULL DEFAULT 'pending',
       attempts INT NOT NULL DEFAULT 0,
@@ -102,6 +102,13 @@ async function ensureDatabaseSchema() {
       sent_at TIMESTAMPTZ,
       UNIQUE (permission_id, event_type, channel, recipient)
     );
+  `);
+  await pool.query(`
+    ALTER TABLE notification_deliveries
+      DROP CONSTRAINT IF EXISTS notification_deliveries_channel_check;
+    ALTER TABLE notification_deliveries
+      ADD CONSTRAINT notification_deliveries_channel_check
+      CHECK (channel IN ('email', 'sms', 'whatsapp'));
   `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS discipline_incidents (

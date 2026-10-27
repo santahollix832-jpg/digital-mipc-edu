@@ -68,7 +68,7 @@ CREATE TABLE IF NOT EXISTS notification_deliveries (
     id BIGSERIAL PRIMARY KEY,
     permission_id INT REFERENCES permissions(id) ON DELETE CASCADE,
     event_type VARCHAR(30) NOT NULL,
-    channel VARCHAR(10) NOT NULL CHECK (channel IN ('email', 'sms')),
+    channel VARCHAR(10) NOT NULL CHECK (channel IN ('email', 'sms', 'whatsapp')),
     recipient VARCHAR(254) NOT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'pending',
     attempts INT NOT NULL DEFAULT 0,
