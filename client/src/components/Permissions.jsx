@@ -4,14 +4,10 @@ import { apiFetch } from '../api/config';
 import { useToast } from './ToastProvider';
 
 const emptyForm = {
-  student_name: '',
-  class_name: '',
+  student_id: '',
   reason: '',
-  start_date: '',
-  end_date: '',
   departure_time: '',
   expected_return_time: '',
-  status: 'Pending',
 };
 
 const statusStyles = {
@@ -48,6 +44,7 @@ function formatValue(value) {
 function Permissions() {
   const { notify } = useToast();
   const [requests, setRequests] = useState([]);
+  const [students, setStudents] = useState([]);
   const [overdueCount, setOverdueCount] = useState(0);
   const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(true);
@@ -66,31 +63,36 @@ function Permissions() {
   async function loadRequests(silent = false) {
     try {
       if (!silent) setLoading(true);
-      const [permissionResponse, overdueResponse] = await Promise.all([
+      const [permissionResponse, overdueResponse, studentsResponse] = await Promise.all([
         apiFetch('/permissions'),
         apiFetch('/permissions/overdue'),
+        apiFetch('/students'),
       ]);
 
       if (!permissionResponse.ok) throw new Error('Permissions request failed.');
+      if (!overdueResponse.ok) throw new Error('Unable to refresh overdue permission status.');
+      if (!studentsResponse.ok) throw new Error('Unable to load students for leave requests.');
       const payload = await permissionResponse.json();
+      const studentPayload = await studentsResponse.json();
+      setStudents(Array.isArray(studentPayload) ? studentPayload : []);
       const items = Array.isArray(payload) ? payload : payload.data || [];
       const normalized = items.map((item) => ({
         id: item.id || item._id || `${item.student_name}-${item.start_date || item.created_at}`,
+        student_id: item.student_id || '',
         student_name: item.student_name || item.studentName || 'Unknown student',
         class_name: item.class_name || item.className || 'Unassigned',
         reason: item.reason || 'No reason provided',
-        start_date: item.start_date || item.startDate || item.leave_timestamp || '',
-        end_date: item.end_date || item.endDate || item.expected_return_time || item.return_timestamp || '',
         departure_time: item.departure_time || item.departureTime || item.leave_timestamp || '',
         expected_return_time: item.expected_return_time || item.expectedReturnTime || item.return_timestamp || '',
+        actual_return_timestamp: item.actual_return_timestamp || '',
         status: item.status || 'Pending',
       }));
 
       setRequests(normalized);
 
-      const overduePayload = await overdueResponse.json().catch(() => []);
+      const overduePayload = await overdueResponse.json();
       const overdueItems = Array.isArray(overduePayload) ? overduePayload : overduePayload.data || [];
-      setOverdueCount(Array.isArray(overdueItems) ? overdueItems.length : overduePayload?.length || 0);
+      setOverdueCount(new Set(overdueItems.map((item) => item.student_id || item.student_name)).size);
     } catch (error) {
       console.error(error);
       if (!silent) notify('Unable to load permission requests.', 'error');
@@ -117,7 +119,7 @@ function Permissions() {
   }, [requests, statusFilter, search]);
 
   const onTimeRequests = useMemo(
-    () => requests.filter((request) => !isOverdueRequest(request) && request.status !== 'Rejected' && request.status !== 'Pending'),
+    () => requests.filter((request) => request.status === 'Approved' && !isOverdueRequest(request)),
     [requests]
   );
 
@@ -146,22 +148,22 @@ function Permissions() {
 
   async function handleSubmit(event) {
     event.preventDefault();
-    if (!form.student_name || !form.class_name || !form.reason || !form.start_date || !form.end_date || !form.departure_time || !form.expected_return_time) {
+    if (!form.student_id || !form.reason || !form.departure_time || !form.expected_return_time) {
       notify('Please complete departure and expected return times before submitting.', 'warning');
+      return;
+    }
+    if (new Date(form.departure_time) >= new Date(form.expected_return_time)) {
+      notify('Expected return time must be later than departure time.', 'warning');
       return;
     }
 
     setSubmitting(true);
     try {
       const payload = {
-        student_name: form.student_name,
-        class_name: form.class_name,
+        student_id: Number(form.student_id),
         reason: form.reason,
-        start_date: form.start_date,
-        end_date: form.end_date,
         departure_time: form.departure_time,
         expected_return_time: form.expected_return_time,
-        status: form.status,
       };
 
       const response = await apiFetch('/permissions', {
@@ -177,14 +179,13 @@ function Permissions() {
 
       setRequests((current) => [{
         id: result.permission?.id || Date.now(),
-        student_name: payload.student_name,
-        class_name: payload.class_name,
+        student_id: payload.student_id,
+        student_name: result.permission?.student_name || students.find((student) => Number(student.id) === payload.student_id)?.name || 'Unknown student',
+        class_name: result.permission?.class_name || students.find((student) => Number(student.id) === payload.student_id)?.class_name || 'Unassigned',
         reason: payload.reason,
-        start_date: payload.start_date,
-        end_date: payload.end_date,
         departure_time: payload.departure_time,
         expected_return_time: payload.expected_return_time,
-        status: payload.status,
+        status: 'Pending',
       }, ...current]);
       setForm(emptyForm);
       notify('Permission request submitted successfully.', 'success');
@@ -206,6 +207,19 @@ function Permissions() {
       const result = await response.json().catch(() => ({}));
       if (!response.ok) {
         throw new Error(result.error || 'Status update failed.');
+      }
+
+      async function markReturned(request) {
+        try {
+          const response = await apiFetch(`/permissions/${request.id}/return`, { method: 'PUT' });
+          const result = await response.json().catch(() => ({}));
+          if (!response.ok) throw new Error(result.error || 'Unable to record the student return.');
+          await loadRequests(true);
+          notify(`Return recorded for ${request.student_name}.`, 'success');
+        } catch (error) {
+          console.error(error);
+          notify(error.message || 'Unable to record the student return.', 'error');
+        }
       }
 
       setRequests((current) =>
@@ -244,26 +258,20 @@ function Permissions() {
           </div>
 
           <form onSubmit={handleSubmit} className="grid gap-4 md:grid-cols-2">
-            <label className="block md:col-span-1">
-              <span className="mb-2 block text-sm font-medium text-slate-700">Student Name</span>
-              <input
-                name="student_name"
-                value={form.student_name}
+            <label className="block md:col-span-2">
+              <span className="mb-2 block text-sm font-medium text-slate-700">Student</span>
+              <select
+                name="student_id"
+                value={form.student_id}
                 onChange={handleInputChange}
-                placeholder="Aisha Mutesa"
+                required
                 className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:bg-white"
-              />
-            </label>
-
-            <label className="block md:col-span-1">
-              <span className="mb-2 block text-sm font-medium text-slate-700">Class</span>
-              <input
-                name="class_name"
-                value={form.class_name}
-                onChange={handleInputChange}
-                placeholder="S4A"
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:bg-white"
-              />
+              >
+                <option value="">Select a student</option>
+                {students.map((student) => (
+                  <option key={student.id} value={student.id}>{student.name} · {student.class_name} · {student.reg_number}</option>
+                ))}
+              </select>
             </label>
 
             <label className="block md:col-span-2">
@@ -285,6 +293,7 @@ function Permissions() {
                 name="departure_time"
                 value={form.departure_time}
                 onChange={handleInputChange}
+                required
                 className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:bg-white"
               />
             </label>
@@ -296,47 +305,12 @@ function Permissions() {
                 name="expected_return_time"
                 value={form.expected_return_time}
                 onChange={handleInputChange}
+                required
                 className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:bg-white"
               />
             </label>
 
-            <label className="block">
-              <span className="mb-2 block text-sm font-medium text-slate-700">Start Date</span>
-              <input
-                type="date"
-                name="start_date"
-                value={form.start_date}
-                onChange={handleInputChange}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:bg-white"
-              />
-            </label>
-
-            <label className="block">
-              <span className="mb-2 block text-sm font-medium text-slate-700">End Date</span>
-              <input
-                type="date"
-                name="end_date"
-                value={form.end_date}
-                onChange={handleInputChange}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:bg-white"
-              />
-            </label>
-
-            <label className="block md:col-span-1">
-              <span className="mb-2 block text-sm font-medium text-slate-700">Status</span>
-              <select
-                name="status"
-                value={form.status}
-                onChange={handleInputChange}
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:bg-white"
-              >
-                <option value="Pending">Pending</option>
-                <option value="Approved">Approved</option>
-                <option value="Rejected">Rejected</option>
-              </select>
-            </label>
-
-            <div className="flex items-end md:col-span-1">
+            <div className="flex items-end md:col-span-2">
               <button
                 type="submit"
                 disabled={submitting}
@@ -395,13 +369,19 @@ function Permissions() {
                     <p className="font-semibold text-white">{item.student_name}</p>
                     <p className="text-xs text-indigo-100">{item.class_name}</p>
                   </div>
-                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${isOverdueRequest(item) ? 'bg-red-400/20 text-red-50' : 'bg-emerald-400/20 text-emerald-50'}`}>
-                    {isOverdueRequest(item) ? 'Late Return' : 'On Time'}
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                    isOverdueRequest(item)
+                      ? 'bg-red-400/20 text-red-50'
+                      : ['Pending', 'Rejected', 'Returned'].includes(item.status)
+                        ? 'bg-white/15 text-indigo-50'
+                        : 'bg-emerald-400/20 text-emerald-50'
+                  }`}>
+                    {isOverdueRequest(item) ? 'Late Return' : ['Pending', 'Rejected', 'Returned'].includes(item.status) ? item.status : 'On Time'}
                   </span>
                 </div>
                 <div className="mt-2 flex items-center gap-2 text-xs text-indigo-100">
                   <Clock3 size={12} />
-                  {formatValue(item.expected_return_time || item.end_date)}
+                  {formatValue(item.expected_return_time)}
                 </div>
               </div>
             ))}
@@ -438,6 +418,7 @@ function Permissions() {
                 <option value="Approved">Approved</option>
                 <option value="Overdue">Overdue</option>
                 <option value="Rejected">Rejected</option>
+                <option value="Returned">Returned</option>
               </select>
             </div>
           </div>
@@ -463,6 +444,7 @@ function Permissions() {
                     <th className="px-4 py-3 font-semibold">Class</th>
                     <th className="px-4 py-3 font-semibold">Reason</th>
                     <th className="px-4 py-3 font-semibold">Departure / Return</th>
+                    <th className="px-4 py-3 font-semibold">Actual return</th>
                     <th className="px-4 py-3 font-semibold">Status</th>
                     <th className="px-4 py-3 font-semibold text-right">Actions</th>
                   </tr>
@@ -478,12 +460,13 @@ function Permissions() {
                         <td className="px-4 py-4">{request.class_name}</td>
                         <td className="px-4 py-4 max-w-sm text-slate-600">{request.reason}</td>
                         <td className="px-4 py-4">
-                          <div>{formatValue(request.departure_time || request.start_date)}</div>
+                          <div>{formatValue(request.departure_time)}</div>
                           <div className={`mt-1 inline-flex items-center gap-1 text-xs font-medium ${isLate ? 'text-red-600' : 'text-slate-500'}`}>
                             <Clock3 size={12} />
-                            {formatValue(request.expected_return_time || request.end_date)}
+                            {formatValue(request.expected_return_time)}
                           </div>
                         </td>
+                        <td className="px-4 py-4">{formatValue(request.actual_return_timestamp)}</td>
                         <td className="px-4 py-4">
                           <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${statusStyles[request.status] || statusStyles.Pending}`}>
                             {request.status === 'Approved' && isLate ? 'Overdue' : request.status}
@@ -491,7 +474,7 @@ function Permissions() {
                         </td>
                         <td className="px-4 py-4">
                           <div className="flex justify-end gap-2">
-                            {request.status !== 'Approved' && (
+                            {!['Approved', 'Overdue', 'Returned'].includes(request.status) && (
                               <button
                                 type="button"
                                 onClick={() => updateStatus(request.id, 'Approved')}
@@ -501,7 +484,7 @@ function Permissions() {
                                 Approve
                               </button>
                             )}
-                            {request.status !== 'Rejected' && (
+                            {!['Rejected', 'Returned'].includes(request.status) && (
                               <button
                                 type="button"
                                 onClick={() => updateStatus(request.id, 'Rejected')}
@@ -509,6 +492,16 @@ function Permissions() {
                               >
                                 <CircleX size={12} />
                                 Reject
+                              </button>
+                            )}
+                            {['Approved', 'Overdue'].includes(request.status) && (
+                              <button
+                                type="button"
+                                onClick={() => markReturned(request)}
+                                className="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-2.5 py-1.5 text-xs font-semibold text-white transition hover:bg-sky-500"
+                              >
+                                <Check size={12} />
+                                Returned
                               </button>
                             )}
                           </div>

@@ -16,7 +16,9 @@ router.post('/records', saveAttendance);
 /**
  * POST /api/attendance/scan
  * Record a student attendance scan
- * Body: { student_id, check_in_method, device_id }
+ * Body: { student_id | student_identifier, check_in_method, device_id, date }
+ * student_identifier may be a registration number or active smart-card UID.
+ * Repeated scans record entry followed by exit for the current date.
  */
 router.post('/scan', validateScanRequest, recordAttendanceScan);
 

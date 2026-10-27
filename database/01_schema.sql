@@ -27,7 +27,9 @@ CREATE TABLE students (
     reg_number VARCHAR(50) UNIQUE,
     class VARCHAR(100) NOT NULL,
     gender VARCHAR(10) NOT NULL,
-    photo_url TEXT DEFAULT 'default.png'
+    photo_url TEXT DEFAULT 'default.png',
+    guardian_email VARCHAR(254),
+    guardian_phone VARCHAR(30)
 );
 
 CREATE TABLE smart_cards (
@@ -60,6 +62,20 @@ CREATE TABLE permissions (
     actual_return_timestamp TIMESTAMP NULL,
     status VARCHAR(20) DEFAULT 'Approved',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS notification_deliveries (
+    id BIGSERIAL PRIMARY KEY,
+    permission_id INT REFERENCES permissions(id) ON DELETE CASCADE,
+    event_type VARCHAR(30) NOT NULL,
+    channel VARCHAR(10) NOT NULL CHECK (channel IN ('email', 'sms')),
+    recipient VARCHAR(254) NOT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',
+    attempts INT NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    sent_at TIMESTAMPTZ,
+    UNIQUE (permission_id, event_type, channel, recipient)
 );
 
 CREATE INDEX idx_attendance_today ON attendance_logs (check_in_time);

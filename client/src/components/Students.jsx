@@ -12,6 +12,8 @@ const emptyForm = {
   class_name: '',
   gender: 'Female',
   status: 'Boarding',
+  guardian_email: '',
+  guardian_phone: '',
   photo_url: '',
   photo_file: null,
 };
@@ -53,6 +55,8 @@ function Students() {
           class_name: student.class_name || student.className || student.class || 'N/A',
           gender: student.gender || 'Unknown',
           status: student.status === 'Day Scholar' ? 'Day Scholar' : 'Boarding',
+          guardian_email: student.guardian_email || '',
+          guardian_phone: student.guardian_phone || '',
           photo_url: student.photo_url || student.photoUrl || '',
         }))
       );
@@ -106,6 +110,8 @@ function Students() {
       class_name: student.class_name,
       gender: student.gender,
       status: ['Boarding', 'Day Scholar'].includes(student.status) ? student.status : 'Boarding',
+      guardian_email: student.guardian_email || '',
+      guardian_phone: student.guardian_phone || '',
       photo_url: student.photo_url || '',
       photo_file: null,
     });
@@ -147,6 +153,8 @@ function Students() {
       formData.append('class_name', form.class_name);
       formData.append('gender', form.gender);
       formData.append('status', form.status || 'Boarding');
+      formData.append('guardian_email', form.guardian_email);
+      formData.append('guardian_phone', form.guardian_phone);
       if (form.photo_url && !form.photo_file && form.photo_url.startsWith('http')) {
         formData.append('photo_url', form.photo_url);
       }
@@ -171,6 +179,8 @@ function Students() {
         class_name: form.class_name,
         gender: form.gender,
         status: form.status || 'Boarding',
+        guardian_email: form.guardian_email,
+        guardian_phone: form.guardian_phone,
         photo_url: form.photo_url || '',
       };
 
@@ -185,6 +195,8 @@ function Students() {
                   class_name: student.class_name || form.class_name,
                   gender: student.gender || form.gender,
                   status: student.status || form.status || 'Boarding',
+                  guardian_email: student.guardian_email || '',
+                  guardian_phone: student.guardian_phone || '',
                   photo_url: student.photo_url || entry.photo_url || '',
                 }
               : entry
@@ -199,6 +211,8 @@ function Students() {
           class_name: student.class_name || form.class_name,
           gender: student.gender || form.gender,
           status: student.status || form.status || 'Boarding',
+          guardian_email: student.guardian_email || '',
+          guardian_phone: student.guardian_phone || '',
           photo_url: student.photo_url || '',
         }, ...current]);
         notify('New student added to the directory.', 'success');
@@ -500,6 +514,31 @@ function Students() {
                   <option value="Male">Male</option>
                   <option value="Other">Other</option>
                 </select>
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium text-slate-700">Guardian email</span>
+                <input
+                  type="email"
+                  name="guardian_email"
+                  value={form.guardian_email}
+                  onChange={handleFormChange}
+                  autoComplete="email"
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-indigo-400 focus:bg-white"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-2 block text-sm font-medium text-slate-700">Guardian phone</span>
+                <input
+                  type="tel"
+                  name="guardian_phone"
+                  value={form.guardian_phone}
+                  onChange={handleFormChange}
+                  autoComplete="tel"
+                  placeholder="+250..."
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-indigo-400 focus:bg-white"
+                />
               </label>
 
               <div className="md:col-span-2 rounded-2xl border border-dashed border-slate-200 bg-slate-50 p-4">

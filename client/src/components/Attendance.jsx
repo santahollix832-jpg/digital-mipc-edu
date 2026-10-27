@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { CalendarDays, CheckCircle2, Download, Printer, QrCode, ScanLine, Users, X } from 'lucide-react';
 import { apiFetch } from '../api/config';
 import { useToast } from './ToastProvider';
@@ -43,7 +43,17 @@ function Attendance() {
   const [classesError, setClassesError] = useState('');
   const [saving, setSaving] = useState(false);
   const [scanOpen, setScanOpen] = useState(false);
+  const [scanValue, setScanValue] = useState('');
+  const [scanMessage, setScanMessage] = useState('');
+  const [cameraActive, setCameraActive] = useState(false);
   const [draft, setDraft] = useState({});
+  const cameraVideoRef = useRef(null);
+  const cameraStreamRef = useRef(null);
+  const cameraFrameRef = useRef(null);
+  const nfcAbortControllerRef = useRef(null);
+  const scannerActiveRef = useRef(false);
+  const scanBusyRef = useRef(false);
+  const recentScansRef = useRef(new Map());
 
   useEffect(() => {
     loadClasses();
@@ -52,6 +62,11 @@ function Attendance() {
   useEffect(() => {
     loadSummary();
   }, [selectedDate]);
+
+  useEffect(() => {
+    if (!scanOpen) stopCameraScanner();
+    return () => stopCameraScanner();
+  }, [scanOpen]);
 
   async function loadClasses() {
     try {
@@ -110,6 +125,7 @@ function Attendance() {
     permission: 0,
     unmarked: 0,
   };
+  const canScanLive = selectedDate === today;
 
   const classRows = useMemo(() => {
     return (summary?.classes || []).filter((row) => {
@@ -167,42 +183,152 @@ function Attendance() {
     }
   }
 
-  async function scanSimulator() {
-    const firstUnmarked = (summary?.details || []).find((student) => student.status === 'unmarked');
-    if (!firstUnmarked) {
-      notify('All students already have an attendance status for this date.', 'warning');
-      return;
+  function stopCameraScanner() {
+    scannerActiveRef.current = false;
+    if (cameraFrameRef.current) cancelAnimationFrame(cameraFrameRef.current);
+    cameraFrameRef.current = null;
+    cameraStreamRef.current?.getTracks().forEach((track) => track.stop());
+    cameraStreamRef.current = null;
+    nfcAbortControllerRef.current?.abort();
+    nfcAbortControllerRef.current = null;
+    setCameraActive(false);
+  }
+
+  function normalizeScanValue(rawValue) {
+    const value = String(rawValue || '').trim();
+    if (!value) return '';
+    try {
+      const parsed = JSON.parse(value);
+      return String(parsed.student_id || parsed.reg_number || parsed.card_uid || parsed.id || '').trim();
+    } catch {
+      return value;
     }
+  }
+
+  async function recordScan(rawValue, method) {
+    const studentIdentifier = normalizeScanValue(rawValue);
+    const lastScanAt = recentScansRef.current.get(studentIdentifier) || 0;
+    if (!studentIdentifier || scanBusyRef.current || Date.now() - lastScanAt < 2000) return;
+    if (recentScansRef.current.size > 100) {
+      for (const [identifier, scannedAt] of recentScansRef.current) {
+        if (Date.now() - scannedAt > 10000) recentScansRef.current.delete(identifier);
+      }
+    }
+    scanBusyRef.current = true;
+    recentScansRef.current.set(studentIdentifier, Date.now());
     try {
       const response = await apiFetch('/attendance/scan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          student_id: firstUnmarked.id,
-          check_in_method: 'NFC',
-          device_id: 'MIPC-ATTENDANCE-SIMULATOR',
+          student_identifier: studentIdentifier,
+          check_in_method: method,
+          device_id: `MIPC-${method}-SCANNER`,
           date: selectedDate,
         }),
       });
       const payload = await response.json();
-      if (!response.ok) throw new Error(payload.error || payload.message || 'NFC scan failed.');
+      if (!response.ok) throw new Error(payload.error || payload.message || 'Attendance scan failed.');
       await loadSummary();
-      notify(`NFC attendance recorded for ${firstUnmarked.name}.`, 'success');
+      const actionLabel = payload.data?.action === 'exit' ? 'exit' : 'entry';
+      const recordedAt = actionLabel === 'exit' ? payload.data?.check_out_time : payload.data?.check_in_time;
+      const recordedTime = recordedAt
+        ? new Date(recordedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+        : 'now';
+      setScanMessage(`${payload.data?.student_name || studentIdentifier}: ${actionLabel} recorded at ${recordedTime}.`);
+      setScanValue('');
+      notify(`${payload.data?.student_name || 'Student'} ${actionLabel} recorded.`, 'success');
     } catch (error) {
-      console.error('Attendance NFC simulation failed:', error);
-      notify(error.message || 'NFC scan failed.', 'error');
+      console.error('Attendance scan failed:', error);
+      setScanMessage(error.message || 'Attendance scan failed.');
+      notify(error.message || 'Attendance scan failed.', 'error');
+    } finally {
+      scanBusyRef.current = false;
     }
+  }
+
+  async function startCameraScanner() {
+    if (!navigator.mediaDevices?.getUserMedia || !('BarcodeDetector' in window)) {
+      notify('QR camera scanning is unavailable in this browser. Enter the student registration number instead.', 'warning');
+      return;
+    }
+    try {
+      const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+      cameraStreamRef.current = stream;
+      if (cameraVideoRef.current) {
+        cameraVideoRef.current.srcObject = stream;
+        await cameraVideoRef.current.play();
+      }
+      scannerActiveRef.current = true;
+      setCameraActive(true);
+      const scanFrame = async () => {
+        if (!scannerActiveRef.current || !cameraVideoRef.current) return;
+        try {
+          const codes = await detector.detect(cameraVideoRef.current);
+          if (codes.length && codes[0].rawValue) {
+            await recordScan(codes[0].rawValue, 'QR');
+          }
+        } catch (error) {
+          console.error('QR detection failed:', error);
+          stopCameraScanner();
+          setScanMessage('Could not read a QR code from the camera stream.');
+          return;
+        }
+        cameraFrameRef.current = requestAnimationFrame(scanFrame);
+      };
+      cameraFrameRef.current = requestAnimationFrame(scanFrame);
+    } catch (error) {
+      stopCameraScanner();
+      console.error('QR camera access failed:', error);
+      notify(error.message || 'Unable to start the QR camera scanner.', 'error');
+    }
+  }
+
+  async function startNfcScanner() {
+    if (!('NDEFReader' in window)) {
+      notify('Web NFC is not supported here. Use QR scanning or enter the student registration number.', 'warning');
+      return;
+    }
+    try {
+      const reader = new window.NDEFReader();
+      const abortController = new AbortController();
+      nfcAbortControllerRef.current = abortController;
+      reader.addEventListener('reading', async (event) => {
+        abortController.abort();
+        nfcAbortControllerRef.current = null;
+        const record = event.message.records.find((item) => item.recordType === 'text');
+        if (!record) {
+          setScanMessage('The NFC tag has no text identifier. Store the student ID or registration number on it.');
+          return;
+        }
+        const decoder = new TextDecoder(record.encoding || 'utf-8');
+        await recordScan(decoder.decode(record.data), 'NFC');
+      }, { once: true });
+      await reader.scan({ signal: abortController.signal });
+      setScanMessage('NFC reader ready. Tap a student tag to record entry or exit.');
+    } catch (error) {
+      if (error.name === 'AbortError') return;
+      console.error('NFC scan could not start:', error);
+      notify(error.message || 'Unable to start NFC scanning. Check browser support and permissions.', 'error');
+    }
+  }
+
+  function submitManualScan(event) {
+    event.preventDefault();
+    recordScan(scanValue, 'QR');
   }
 
   function exportCsv() {
     const rows = [
-      ['Student', 'Registration Number', 'Class', 'Status', 'Check-in Time', 'Method'],
+      ['Student', 'Registration Number', 'Class', 'Status', 'Check-in Time', 'Check-out Time', 'Method'],
       ...filteredStudents.map((student) => [
         student.name,
         student.reg_number || '',
         student.class_name || '',
         statusLabels[student.status] || student.status,
         student.check_in_time ? new Date(student.check_in_time).toLocaleTimeString() : '',
+        student.check_out_time ? new Date(student.check_out_time).toLocaleTimeString() : '',
         student.check_in_method || '',
       ]),
     ];
@@ -381,7 +507,7 @@ function Attendance() {
         <div className="overflow-x-auto">
           <table className="min-w-full text-left text-sm text-slate-700">
             <thead className="bg-slate-50 text-xs uppercase tracking-[0.14em] text-slate-500">
-              <tr><th className="px-4 py-3 font-semibold">Student</th><th className="px-4 py-3 font-semibold">Reg Number</th><th className="px-4 py-3 font-semibold">Class</th><th className="px-4 py-3 font-semibold">Status</th><th className="px-4 py-3 font-semibold">Check-in</th><th className="px-4 py-3 font-semibold">Method</th></tr>
+              <tr><th className="px-4 py-3 font-semibold">Student</th><th className="px-4 py-3 font-semibold">Reg Number</th><th className="px-4 py-3 font-semibold">Class</th><th className="px-4 py-3 font-semibold">Status</th><th className="px-4 py-3 font-semibold">Check-in</th><th className="px-4 py-3 font-semibold">Check-out</th><th className="px-4 py-3 font-semibold">Method</th></tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
               {filteredStudents.map((student) => (
@@ -391,10 +517,11 @@ function Attendance() {
                   <td className="px-4 py-3">{student.class_name}</td>
                   <td className="px-4 py-3"><span className={`inline-flex rounded-full border px-2.5 py-1 text-xs font-semibold ${statusStyles[student.status] || statusStyles.unmarked}`}>{statusLabels[student.status] || student.status}</span></td>
                   <td className="px-4 py-3">{student.check_in_time ? new Date(student.check_in_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
+                  <td className="px-4 py-3">{student.check_out_time ? new Date(student.check_out_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}</td>
                   <td className="px-4 py-3">{student.check_in_method || '—'}</td>
                 </tr>
               ))}
-              {!loading && filteredStudents.length === 0 && <tr><td colSpan="6" className="px-4 py-10 text-center text-slate-500">No attendance records match these filters.</td></tr>}
+              {!loading && filteredStudents.length === 0 && <tr><td colSpan="7" className="px-4 py-10 text-center text-slate-500">No attendance records match these filters.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -407,6 +534,35 @@ function Attendance() {
               <div><p className="text-sm font-semibold uppercase tracking-[0.18em] text-indigo-600">Quick action · {selectedDate}</p><h2 className="mt-1 text-2xl font-bold text-slate-900">Take attendance</h2></div>
               <button type="button" onClick={() => setScanOpen(false)} aria-label="Close attendance modal" className="rounded-full bg-slate-100 p-2 text-slate-600"><X size={18} /></button>
             </div>
+            <section className="mb-5 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4">
+              <div className="mb-3 flex items-center gap-2">
+                <QrCode size={17} className="text-indigo-600" />
+                <h3 className="font-semibold text-slate-900">QR / NFC attendance scanner</h3>
+              </div>
+              <form onSubmit={submitManualScan} className="flex flex-col gap-2 sm:flex-row">
+                <input
+                  value={scanValue}
+                  onChange={(event) => setScanValue(event.target.value)}
+                  placeholder="Scan or enter student ID / registration number"
+                  aria-label="Student QR or NFC identifier"
+                          disabled={!canScanLive}
+                          className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-indigo-400"
+                        />
+                        <button type="submit" disabled={!canScanLive || !scanValue.trim()} className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
+                          Record scan
+                        </button>
+                        <button type="button" disabled={!canScanLive} onClick={cameraActive ? stopCameraScanner : startCameraScanner} className="inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-white px-4 py-2.5 text-sm font-semibold text-indigo-700 disabled:opacity-50">
+                          <QrCode size={15} /> {cameraActive ? 'Stop camera' : 'Use camera'}
+                        </button>
+                        <button type="button" disabled={!canScanLive} onClick={startNfcScanner} className="inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-white px-4 py-2.5 text-sm font-semibold text-indigo-700 disabled:opacity-50">
+                          <ScanLine size={15} /> Read NFC
+                        </button>
+              </form>
+              <video ref={cameraVideoRef} className={`${cameraActive ? 'mt-3 block' : 'hidden'} max-h-64 w-full rounded-xl bg-slate-950 object-cover`} muted playsInline />
+              {scanMessage && <p role="status" className="mt-2 text-sm text-slate-600">{scanMessage}</p>}
+              {!canScanLive && <p className="mt-2 text-sm font-medium text-amber-700">Live QR/NFC scans are available only for today. Historical dates can still be updated using the attendance form below.</p>}
+              <p className="mt-2 text-xs text-slate-500">Each scan records a server-timestamped entry, then exit. QR codes and NFC text tags should contain a student ID or registration number. External readers can submit an assigned smart-card UID.</p>
+            </section>
             <div className="space-y-3">
               {(summary?.details || []).map((student) => (
                 <div key={student.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-3 sm:flex-row sm:items-center sm:justify-between">
@@ -421,7 +577,6 @@ function Attendance() {
               {!summary?.details?.length && <p className="py-8 text-center text-sm text-slate-500">No students are available to mark.</p>}
             </div>
             <div className="mt-6 flex flex-col gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
-              <button type="button" onClick={scanSimulator} className="inline-flex items-center justify-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-2.5 font-semibold text-indigo-700"><QrCode size={16} /> Simulate Smart Card / NFC Scan</button>
               <div className="flex justify-end gap-3">
                 <button type="button" onClick={() => setScanOpen(false)} className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 font-semibold text-slate-700">Cancel</button>
                 <button type="button" onClick={saveAttendance} disabled={saving} className="rounded-xl bg-indigo-600 px-4 py-2.5 font-semibold text-white disabled:opacity-60">{saving ? 'Saving…' : 'Save attendance'}</button>

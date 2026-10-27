@@ -77,17 +77,32 @@ const fileFilter = (req, file, cb) => {
 
 const upload = multer({ storage: storage, fileFilter: fileFilter });
 
-const permissionRequests = [];
-let permissionRequestId = 1;
-
 async function ensureDatabaseSchema() {
   await pool.query("ALTER TABLE students ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'Active';");
   await pool.query("ALTER TABLE students ADD COLUMN IF NOT EXISTS photo_url VARCHAR(255) DEFAULT 'default.png';");
+  await pool.query('ALTER TABLE students ADD COLUMN IF NOT EXISTS guardian_email VARCHAR(254);');
+  await pool.query('ALTER TABLE students ADD COLUMN IF NOT EXISTS guardian_phone VARCHAR(30);');
   await pool.query("ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'present';");
   await pool.query('ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS device_id VARCHAR(50);');
+  await pool.query('ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS check_out_time TIMESTAMP;');
   await pool.query('ALTER TABLE permissions ADD COLUMN IF NOT EXISTS departure_time TIMESTAMP;');
   await pool.query('ALTER TABLE permissions ADD COLUMN IF NOT EXISTS expected_return_time TIMESTAMP;');
   await pool.query('ALTER TABLE permissions ADD COLUMN IF NOT EXISTS actual_return_timestamp TIMESTAMP;');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS notification_deliveries (
+      id BIGSERIAL PRIMARY KEY,
+      permission_id INT REFERENCES permissions(id) ON DELETE CASCADE,
+      event_type VARCHAR(30) NOT NULL,
+      channel VARCHAR(10) NOT NULL CHECK (channel IN ('email', 'sms')),
+      recipient VARCHAR(254) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      attempts INT NOT NULL DEFAULT 0,
+      last_error TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      sent_at TIMESTAMPTZ,
+      UNIQUE (permission_id, event_type, channel, recipient)
+    );
+  `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS discipline_incidents (
       id SERIAL PRIMARY KEY,
@@ -131,68 +146,6 @@ app.use('/api', (req, res, next) => {
 });
 app.use('/api', authenticateRequest);
 
-app.get('/api/permissions', requireRoles('ADMIN', 'PATRON', 'TEACHER'), (req, res) => {
-  res.json(permissionRequests);
-});
-
-app.post('/api/permissions', requireRoles('ADMIN', 'PATRON', 'TEACHER'), (req, res) => {
-  try {
-    const {
-      student_name,
-      class_name,
-      reason,
-      start_date,
-      end_date,
-      departure_time,
-      expected_return_time,
-      status,
-    } = req.body;
-
-    if (!student_name || !class_name || !reason || !start_date || !end_date) {
-      return res.status(400).json({ success: false, error: 'Please complete all permission fields.' });
-    }
-
-    const normalizedDepartureTime = departure_time || start_date;
-    const normalizedExpectedReturnTime = expected_return_time || end_date;
-
-    const request = {
-      id: permissionRequestId++,
-      student_name,
-      class_name,
-      reason,
-      start_date,
-      end_date,
-      departure_time: normalizedDepartureTime,
-      expected_return_time: normalizedExpectedReturnTime,
-      status: status || 'Pending',
-      created_at: new Date().toISOString(),
-    };
-
-    permissionRequests.unshift(request);
-    return res.status(201).json({ success: true, permission: request });
-  } catch (error) {
-    console.error('PERMISSIONS_INMEMORY_CREATE_ERROR:', error);
-    return res.status(500).json({ success: false, error: 'Unable to create permission request.' });
-  }
-});
-
-app.patch('/api/permissions/:id/status', requireRoles('ADMIN', 'PATRON', 'TEACHER'), (req, res) => {
-  const { id } = req.params;
-  const { status } = req.body;
-  const target = permissionRequests.find((request) => String(request.id) === String(id));
-
-  if (!target) {
-    return res.status(404).json({ success: false, error: 'Permission request not found.' });
-  }
-
-  if (!status || !['Pending', 'Approved', 'Rejected', 'Overdue', 'Returned'].includes(status)) {
-    return res.status(400).json({ success: false, error: 'Invalid permission status.' });
-  }
-
-  target.status = status;
-  return res.json({ success: true, permission: target });
-});
-
 // Each management module applies its role policy to every endpoint.
 app.use('/api/permissions', requireRoles('ADMIN', 'PATRON', 'TEACHER'), permissionsRouter);
 
@@ -214,7 +167,8 @@ app.use('/api/attendance', requireRoles('ADMIN', 'PATRON', 'TEACHER'), attendanc
 app.get('/api/students', async (req, res, next) => {
   try {
     const result = await pool.query(
-      `SELECT id, name, reg_number, class AS class_name, gender, photo_url, COALESCE(status, 'Active') AS status
+      `SELECT id, name, reg_number, class AS class_name, gender, photo_url, guardian_email, guardian_phone,
+              COALESCE(status, 'Active') AS status
        FROM students ORDER BY id DESC;`
     );
     res.json(result.rows);
@@ -231,16 +185,18 @@ app.post('/api/students/register', requireRoles('ADMIN', 'PATRON', 'TEACHER'), u
     const finalClass     = req.body.class_name || req.body.className || req.body.class;
     const { gender }     = req.body;
     const photo_url      = req.file ? `/uploads/${req.file.filename}` : (req.body.photo_url || 'default.png');
+    const guardianEmail = typeof req.body.guardian_email === 'string' ? req.body.guardian_email.trim() || null : null;
+    const guardianPhone = typeof req.body.guardian_phone === 'string' ? req.body.guardian_phone.trim() || null : null;
 
     if (!finalName || !finalRegNumber || !finalClass || !gender) {
       return res.status(400).json({ success: false, error: 'Uzuza amakuru yose! (name, reg_number, class, gender)' });
     }
 
     const result = await pool.query(
-      `INSERT INTO students (name, reg_number, class, gender, photo_url, status)
-       VALUES ($1, $2, $3, $4, $5, COALESCE(NULLIF($6, ''), 'Active'))
-       RETURNING id, name, reg_number, class AS class_name, gender, photo_url, status;`,
-      [finalName, finalRegNumber, finalClass, gender, photo_url, req.body.status || 'Active']
+      `INSERT INTO students (name, reg_number, class, gender, photo_url, status, guardian_email, guardian_phone)
+       VALUES ($1, $2, $3, $4, $5, COALESCE(NULLIF($6, ''), 'Active'), $7, $8)
+       RETURNING id, name, reg_number, class AS class_name, gender, photo_url, status, guardian_email, guardian_phone;`,
+      [finalName, finalRegNumber, finalClass, gender, photo_url, req.body.status || 'Active', guardianEmail, guardianPhone]
     );
     res.status(201).json({ success: true, student: result.rows[0] });
   } catch (err) {
@@ -252,10 +208,12 @@ app.post('/api/students/register', requireRoles('ADMIN', 'PATRON', 'TEACHER'), u
 app.put('/api/students/:id', requireRoles('ADMIN', 'PATRON', 'TEACHER'), upload.single('photo'), async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { name, reg_number, regNumber, class_name, className, gender, status } = req.body;
+    const { name, reg_number, regNumber, class_name, className, gender, status, guardian_email, guardian_phone } = req.body;
     const finalName = name || req.body.studentName;
     const finalRegNumber = reg_number || regNumber || req.body.reg_no;
     const finalClass = class_name || className || req.body.class || req.body.class_name;
+    const guardianEmail = typeof guardian_email === 'string' ? guardian_email.trim() || null : null;
+    const guardianPhone = typeof guardian_phone === 'string' ? guardian_phone.trim() || null : null;
     const nextPhotoUrl = req.file ? `/uploads/${req.file.filename}` : (req.body.photo_url || null);
 
     if (!finalName || !finalRegNumber || !finalClass || !gender) {
@@ -269,10 +227,24 @@ app.put('/api/students/:id', requireRoles('ADMIN', 'PATRON', 'TEACHER'), upload.
            class = $3,
            gender = $4,
            status = COALESCE(NULLIF($5, ''), status),
-           photo_url = COALESCE($6, photo_url)
-       WHERE id = $7
-       RETURNING id, name, reg_number, class AS class_name, gender, photo_url, status;`,
-      [finalName, finalRegNumber, finalClass, gender, status || null, nextPhotoUrl, id]
+           photo_url = COALESCE($6, photo_url),
+           guardian_email = CASE WHEN $7 THEN $8 ELSE guardian_email END,
+           guardian_phone = CASE WHEN $9 THEN $10 ELSE guardian_phone END
+       WHERE id = $11
+       RETURNING id, name, reg_number, class AS class_name, gender, photo_url, status, guardian_email, guardian_phone;`,
+      [
+        finalName,
+        finalRegNumber,
+        finalClass,
+        gender,
+        status || null,
+        nextPhotoUrl,
+        guardian_email !== undefined,
+        guardianEmail,
+        guardian_phone !== undefined,
+        guardianPhone,
+        id,
+      ]
     );
 
     if (result.rowCount === 0) {

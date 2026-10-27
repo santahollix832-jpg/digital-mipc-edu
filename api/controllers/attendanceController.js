@@ -63,7 +63,7 @@ async function fetchAttendanceSummary(db, date) {
      ),
      daily_logs AS (
        SELECT DISTINCT ON (student_id)
-              student_id, status, check_in_time, check_in_method, device_id
+              student_id, status, check_in_time, check_out_time, check_in_method, device_id
        FROM attendance_logs
        WHERE check_in_time >= $1::date
          AND check_in_time < ($1::date + INTERVAL '1 day')
@@ -77,7 +77,7 @@ async function fetchAttendanceSummary(db, date) {
          AND return_timestamp::date >= $1::date
      )
      SELECT s.id, s.name, s.reg_number, s.class AS class_name, s.gender, s.photo_url,
-            al.check_in_time, al.check_in_method, al.device_id,
+            al.check_in_time, al.check_out_time, al.check_in_method, al.device_id,
             CASE
               WHEN ap.student_id IS NOT NULL THEN 'permission'
               WHEN al.status IS NULL THEN 'unmarked'
@@ -241,30 +241,87 @@ async function saveAttendance(req, res) {
 
 async function recordAttendanceScan(req, res) {
   const date = getDate(req.body.date);
-  const studentId = Number(req.validatedData.student_id);
   if (!date) return res.status(400).json({ success: false, error: 'date must be a valid YYYY-MM-DD value.' });
 
   let client;
+  let transactionStarted = false;
   try {
     client = await pool.connect();
-    const studentResult = await client.query('SELECT id, name FROM students WHERE id = $1;', [studentId]);
+    const currentDateResult = await client.query('SELECT CURRENT_DATE::text AS today;');
+    if (date !== currentDateResult.rows[0].today) {
+      return res.status(400).json({ success: false, error: 'Live scans can only be recorded for the current date.' });
+    }
+
+    const { student_id, student_identifier, check_in_method, device_id } = req.validatedData;
+    const studentResult = await client.query(
+      `SELECT s.id, s.name
+       FROM students s
+       LEFT JOIN smart_cards sc ON sc.student_id = s.id AND sc.is_active = TRUE
+       WHERE ($1::int IS NOT NULL AND s.id = $1)
+          OR ($2::text IS NOT NULL AND (s.reg_number = $2 OR sc.card_uid = $2))
+       ORDER BY s.id
+       LIMIT 1;`,
+      [student_id, student_identifier]
+    );
     if (!studentResult.rowCount) {
       return res.status(404).json({ success: false, error: 'Student not found.' });
     }
 
-    const saved = await saveAttendanceRecords(
-      client,
-      date,
-      [{ student_id: studentId, status: 'present' }],
-      req.validatedData.check_in_method,
-      req.validatedData.device_id
+    const matchedStudent = studentResult.rows[0];
+    await client.query('BEGIN');
+    transactionStarted = true;
+    await client.query('SELECT id FROM students WHERE id = $1 FOR UPDATE;', [matchedStudent.id]);
+    const existingResult = await client.query(
+      `SELECT id, check_in_time, check_out_time
+       FROM attendance_logs
+       WHERE student_id = $1
+         AND check_in_time >= $2::date
+         AND check_in_time < ($2::date + INTERVAL '1 day')
+       ORDER BY check_in_time DESC, id DESC
+       LIMIT 1
+       FOR UPDATE;`,
+      [matchedStudent.id, date]
     );
+
+    let saved;
+    let action;
+    if (!existingResult.rowCount) {
+      saved = await client.query(
+        `INSERT INTO attendance_logs (student_id, check_in_time, check_in_method, device_id, status)
+         VALUES ($1, CURRENT_TIMESTAMP, $2, $3, 'present')
+         RETURNING id, student_id, status, check_in_time, check_out_time, check_in_method, device_id;`,
+        [matchedStudent.id, check_in_method, device_id]
+      );
+      action = 'entry';
+    } else if (!existingResult.rows[0].check_out_time) {
+      saved = await client.query(
+        `UPDATE attendance_logs
+         SET check_out_time = CURRENT_TIMESTAMP
+         WHERE id = $1
+         RETURNING id, student_id, status, check_in_time, check_out_time, check_in_method, device_id;`,
+        [existingResult.rows[0].id]
+      );
+      action = 'exit';
+    } else {
+      await client.query('ROLLBACK');
+      transactionStarted = false;
+      return res.status(409).json({
+        success: false,
+        error: `${matchedStudent.name} already has an entry and exit recorded for this date.`,
+      });
+    }
+    await client.query('COMMIT');
+    transactionStarted = false;
+
     return res.status(201).json({
       success: true,
-      message: 'Attendance recorded successfully.',
-      data: { ...saved[0], student_name: studentResult.rows[0].name },
+      message: `Attendance ${action} recorded successfully.`,
+      data: { ...saved.rows[0], student_name: matchedStudent.name, action },
     });
   } catch (error) {
+    if (client && transactionStarted) await client.query('ROLLBACK').catch((rollbackError) => {
+      console.error('ATTENDANCE_SCAN_ROLLBACK_ERROR:', rollbackError);
+    });
     console.error('ATTENDANCE_SCAN_ERROR:', error);
     return res.status(500).json({ success: false, error: 'Unable to record attendance scan.' });
   } finally {
