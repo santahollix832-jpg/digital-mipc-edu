@@ -1,5 +1,24 @@
-const nodemailer = require('nodemailer');
 const pool = require('../config/database');
+
+let nodemailer;
+
+function getOptionalNodemailer() {
+  if (nodemailer !== undefined) return nodemailer;
+  try {
+    nodemailer = require('nodemailer');
+  } catch (error) {
+    if (error.code !== 'MODULE_NOT_FOUND' || !error.message.includes('nodemailer')) throw error;
+    nodemailer = null;
+  }
+  return nodemailer;
+}
+
+function getFetch() {
+  if (typeof globalThis.fetch !== 'function') {
+    throw new Error('This Node.js runtime does not provide fetch for notification delivery.');
+  }
+  return globalThis.fetch.bind(globalThis);
+}
 
 function configuredRecipients(...values) {
   return [...new Set(values.flatMap((value) => (value || '')
@@ -25,7 +44,11 @@ async function deliverEmail(recipient, content) {
   if (!SMTP_HOST || !SMTP_USER || !SMTP_PASSWORD || !SMTP_FROM) {
     throw new Error('SMTP_HOST, SMTP_USER, SMTP_PASSWORD, and SMTP_FROM must be configured.');
   }
-  const transporter = nodemailer.createTransport({
+  const mailer = getOptionalNodemailer();
+  if (!mailer || typeof mailer.createTransport !== 'function') {
+    throw new Error('Email delivery is unavailable because the nodemailer package is not installed.');
+  }
+  const transporter = mailer.createTransport({
     host: SMTP_HOST,
     port: Number(SMTP_PORT || 587),
     secure: SMTP_SECURE === 'true',
@@ -47,7 +70,7 @@ async function deliverSms(recipient, content) {
   });
   if (AFRICASTALKING_SENDER_ID) body.set('from', AFRICASTALKING_SENDER_ID);
 
-  const response = await fetch('https://api.africastalking.com/version1/messaging', {
+  const response = await getFetch()('https://api.africastalking.com/version1/messaging', {
     method: 'POST',
     headers: {
       Accept: 'application/json',
@@ -110,7 +133,7 @@ async function deliverWhatsApp(recipient, eventType, permission) {
       }],
     },
   };
-  const response = await fetch(
+  const response = await getFetch()(
     `https://graph.facebook.com/${encodeURIComponent(META_WHATSAPP_GRAPH_VERSION)}/${encodeURIComponent(META_WHATSAPP_PHONE_NUMBER_ID)}/messages`,
     {
       method: 'POST',
