@@ -67,12 +67,79 @@ async function deliverSms(recipient, content) {
   }
 }
 
+async function deliverWhatsApp(recipient, eventType, permission) {
+  const {
+    META_WHATSAPP_ACCESS_TOKEN,
+    META_WHATSAPP_PHONE_NUMBER_ID,
+    META_WHATSAPP_GRAPH_VERSION = 'v21.0',
+    META_WHATSAPP_TEMPLATE_APPROVED,
+    META_WHATSAPP_TEMPLATE_OVERDUE,
+    META_WHATSAPP_TEMPLATE_LANGUAGE = 'en',
+  } = process.env;
+  if (!META_WHATSAPP_ACCESS_TOKEN || !META_WHATSAPP_PHONE_NUMBER_ID) {
+    throw new Error('META_WHATSAPP_ACCESS_TOKEN and META_WHATSAPP_PHONE_NUMBER_ID must be configured.');
+  }
+
+  const templateName = eventType === 'overdue'
+    ? META_WHATSAPP_TEMPLATE_OVERDUE
+    : META_WHATSAPP_TEMPLATE_APPROVED;
+  if (!templateName) {
+    throw new Error(`A Meta WhatsApp template must be configured for the ${eventType} event.`);
+  }
+  if (!/^\+[1-9]\d{7,14}$/.test(recipient)) {
+    throw new Error('WhatsApp guardian phone must be in E.164 format.');
+  }
+
+  const payload = {
+    messaging_product: 'whatsapp',
+    recipient_type: 'individual',
+    to: recipient.slice(1),
+    type: 'template',
+    template: {
+      name: templateName,
+      language: { code: META_WHATSAPP_TEMPLATE_LANGUAGE },
+      components: [{
+        type: 'body',
+        parameters: [
+          { type: 'text', text: permission.student_name },
+          { type: 'text', text: permission.class_name },
+          { type: 'text', text: permission.expected_return_time || 'not specified' },
+          { type: 'text', text: permission.reason },
+        ],
+      }],
+    },
+  };
+  const response = await fetch(
+    `https://graph.facebook.com/${encodeURIComponent(META_WHATSAPP_GRAPH_VERSION)}/${encodeURIComponent(META_WHATSAPP_PHONE_NUMBER_ID)}/messages`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${META_WHATSAPP_ACCESS_TOKEN}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    }
+  );
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = result.error?.message || `Meta WhatsApp returned HTTP ${response.status}.`;
+    throw new Error(message);
+  }
+  if (!Array.isArray(result.messages) || result.messages.length === 0 || !result.messages[0].id) {
+    throw new Error('Meta WhatsApp did not confirm message acceptance.');
+  }
+}
+
 async function dispatchDelivery(delivery, content) {
   if (delivery.channel === 'email') {
     await deliverEmail(delivery.recipient, content);
     return;
   }
-  await deliverSms(delivery.recipient, content);
+  if (delivery.channel === 'sms') {
+    await deliverSms(delivery.recipient, content);
+    return;
+  }
+  await deliverWhatsApp(delivery.recipient, delivery.event_type, delivery);
 }
 
 async function dispatchPendingNotifications(filter = {}) {
@@ -140,6 +207,9 @@ async function enqueuePermissionNotification(permissionId, eventType) {
       .map((recipient) => ({ channel: 'email', recipient })),
     ...configuredRecipients(process.env.ADMIN_NOTIFICATION_PHONES, student.guardian_phone)
       .map((recipient) => ({ channel: 'sms', recipient })),
+    ...(student.guardian_phone
+      ? [{ channel: 'whatsapp', recipient: student.guardian_phone.trim() }]
+      : []),
   ];
 
   for (const destination of recipients) {
