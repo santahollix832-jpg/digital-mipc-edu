@@ -247,7 +247,7 @@ function Students() {
   }
 
   return (
-    <main className="students-page">
+    <div className="students-page">
       <div className="students-page__glow students-page__glow--one" aria-hidden="true" />
       <div className="students-page__glow students-page__glow--two" aria-hidden="true" />
       <div className="students-page__content">
@@ -705,7 +705,7 @@ function Students() {
           </div>
         </div>
       )}
-    </main>
+    </div>
   );
 }
 
