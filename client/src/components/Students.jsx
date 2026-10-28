@@ -477,6 +477,7 @@ function Students() {
           </div>
         </div>
       </section>
+      </div>
 
       {isModalOpen && (
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-sm">
