@@ -80,6 +80,12 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({ storage: storage, fileFilter: fileFilter });
 
 async function ensureDatabaseSchema() {
+  // Relax the users.role constraint so MATRON / DOD / SECURITY accounts can exist.
+  await pool.query(`
+    ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+    ALTER TABLE users ADD CONSTRAINT users_role_check
+      CHECK (role IN ('ADMIN', 'PATRON', 'MATRON', 'DOD', 'BURSAR', 'TEACHER', 'SECURITY'));
+  `);
   await pool.query("ALTER TABLE students ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'Active';");
   await pool.query("ALTER TABLE students ADD COLUMN IF NOT EXISTS photo_url VARCHAR(255) DEFAULT 'default.png';");
   await pool.query('ALTER TABLE students ADD COLUMN IF NOT EXISTS guardian_email VARCHAR(254);');
@@ -132,6 +138,13 @@ async function ensureDatabaseSchema() {
   await pool.query('ALTER TABLE discipline_incidents ADD COLUMN IF NOT EXISTS incident_time TIME NOT NULL DEFAULT CURRENT_TIME;');
   await pool.query('ALTER TABLE discipline_incidents ADD COLUMN IF NOT EXISTS location VARCHAR(255);');
   await pool.query('ALTER TABLE discipline_incidents ADD COLUMN IF NOT EXISTS action_taken TEXT;');
+  // Discipline approval workflow: new submissions default to Pending; approval metadata.
+  await pool.query("ALTER TABLE discipline_incidents ADD COLUMN IF NOT EXISTS status VARCHAR(50) DEFAULT 'Pending';");
+  await pool.query("ALTER TABLE discipline_incidents ADD COLUMN IF NOT EXISTS approval_status VARCHAR(20) NOT NULL DEFAULT 'pending';");
+  await pool.query("ALTER TABLE discipline_incidents ALTER COLUMN approval_status SET DEFAULT 'pending';");
+  await pool.query('ALTER TABLE discipline_incidents ADD COLUMN IF NOT EXISTS reviewed_by VARCHAR(255);');
+  await pool.query('ALTER TABLE discipline_incidents ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP;');
+  await pool.query('ALTER TABLE discipline_incidents ADD COLUMN IF NOT EXISTS review_notes TEXT;');
 
   // Transport Tracking & IoT Smart Bell modules
   await pool.query(`
@@ -229,25 +242,26 @@ app.use('/api', (req, res, next) => {
 app.use('/api', authenticateRequest);
 
 // Each management module applies its role policy to every endpoint.
-app.use('/api/permissions', requireRoles('ADMIN', 'PATRON', 'TEACHER'), permissionsRouter);
+app.use('/api/permissions', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD'), permissionsRouter);
 
 // Connect school fees module route
 app.use('/api/fees', requireRoles('ADMIN', 'BURSAR'), feesRouter);
 
 // Connect staff management module route
-app.use('/api/staff', requireRoles('ADMIN', 'PATRON'), staffRouter);
+app.use('/api/staff', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD'), staffRouter);
 
 // Connect discipline module route
-app.use('/api/discipline', requireRoles('ADMIN', 'PATRON'), disciplineRouter);
+// Discipline: PATRON/MATRON can report incidents; DOD/ADMIN manage the approval workflow.
+app.use('/api/discipline', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD'), disciplineRouter);
 
 // Connect attendance module route
-app.use('/api/attendance', requireRoles('ADMIN', 'PATRON', 'TEACHER'), attendanceRouter);
+app.use('/api/attendance', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD'), attendanceRouter);
 
 // Connect transport tracking module route
-app.use('/api/transport', requireRoles('ADMIN', 'PATRON', 'TEACHER'), transportRouter);
+app.use('/api/transport', requireRoles('ADMIN', 'SECURITY'), transportRouter);
 
 // Connect IoT smart bell module route
-app.use('/api/bell', requireRoles('ADMIN', 'PATRON', 'TEACHER'), bellRouter);
+app.use('/api/bell', requireRoles('ADMIN'), bellRouter);
 
 // ==========================================
 // 🌟 1. STUDENTS MODULE (CRUD)
@@ -266,7 +280,7 @@ app.get('/api/students', async (req, res, next) => {
   }
 });
 
-app.post('/api/students/register', requireRoles('ADMIN', 'PATRON', 'TEACHER'), upload.single('photo'), async (req, res, next) => {
+app.post('/api/students/register', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD'), upload.single('photo'), async (req, res, next) => {
   try {
     const finalName      = req.body.name      || req.body.studentName;
     const finalRegNumber = req.body.reg_number || req.body.reg_no || req.body.regNumber;
@@ -293,7 +307,7 @@ app.post('/api/students/register', requireRoles('ADMIN', 'PATRON', 'TEACHER'), u
   }
 });
 
-app.put('/api/students/:id', requireRoles('ADMIN', 'PATRON', 'TEACHER'), upload.single('photo'), async (req, res, next) => {
+app.put('/api/students/:id', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD'), upload.single('photo'), async (req, res, next) => {
   try {
     const { id } = req.params;
     const { name, reg_number, regNumber, class_name, className, gender, status, guardian_email, guardian_phone } = req.body;
@@ -346,7 +360,7 @@ app.put('/api/students/:id', requireRoles('ADMIN', 'PATRON', 'TEACHER'), upload.
   }
 });
 
-app.put('/api/students/:id/transfer', requireRoles('ADMIN', 'PATRON'), async (req, res, next) => {
+app.put('/api/students/:id/transfer', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD'), async (req, res, next) => {
   try {
     const { id } = req.params;
     const { newClass } = req.body;
@@ -426,7 +440,7 @@ app.get('/api/attendance/today', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-app.post('/api/attendance/scan', requireRoles('ADMIN', 'PATRON', 'TEACHER'), async (req, res, next) => {
+app.post('/api/attendance/scan', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD'), async (req, res, next) => {
   try {
     const { student_id, method } = req.body;
     const parsedStudentId = parseInt(student_id);

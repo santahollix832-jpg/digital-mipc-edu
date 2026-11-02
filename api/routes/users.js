@@ -4,7 +4,7 @@ const pool = require('../config/database');
 const { authenticateRequest, requireRoles } = require('../middleware/auth');
 
 const router = express.Router();
-const ALLOWED_ROLES = ['ADMIN', 'PATRON', 'BURSAR', 'TEACHER'];
+const ALLOWED_ROLES = ['ADMIN', 'PATRON', 'MATRON', 'DOD', 'BURSAR', 'TEACHER', 'SECURITY'];
 
 router.use(authenticateRequest, requireRoles('ADMIN'));
 

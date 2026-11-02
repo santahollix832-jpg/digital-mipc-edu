@@ -91,7 +91,7 @@ const IncidentForm = () => {
         reportedBy: '',
         actionTaken: '',
       });
-      alert('Incident report successfully submitted.');
+      alert('Incident report submitted and awaiting DOD approval.');
       setSubmitted(true);
       setTimeout(() => setSubmitted(false), 3000);
     } catch (error) {
@@ -111,14 +111,14 @@ const IncidentForm = () => {
             <AlertCircle size={24} />
             Record New Discipline Incident
           </h2>
-          <p className="text-indigo-100 text-sm mt-1">Please provide accurate details regarding the student infraction.</p>
+          <p className="text-indigo-100 text-sm mt-1">Provide accurate details regarding the infraction. Reports from Patrons &amp; Matrons are reviewed by the DOD before becoming part of the student's record.</p>
         </div>
 
         <form onSubmit={handleSubmit} className="p-8 space-y-6">
           {submitted && (
             <div className="bg-emerald-50 border border-emerald-200 text-emerald-700 px-4 py-3 rounded-lg flex items-center gap-3 animate-in fade-in slide-in-from-top-2">
               <CheckCircle2 className="text-emerald-500" />
-              <span className="font-medium">Incident successfully recorded and notified to administration.</span>
+              <span className="font-medium">Incident submitted — it is now pending approval by the DOD before it appears on the student record.</span>
             </div>
           )}
 

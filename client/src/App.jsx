@@ -16,6 +16,9 @@ import { ToastProvider } from './components/ToastProvider';
 const roleLandingPage = {
   ADMIN: '/students',
   PATRON: '/students',
+  MATRON: '/students',
+  DOD: '/discipline',
+  SECURITY: '/transport',
   BURSAR: '/students',
   TEACHER: '/students',
 };
@@ -186,32 +189,32 @@ function AuthenticatedApp() {
               </ProtectedRoute>
             } />
             <Route path="/students/*" element={
-              <ProtectedRoute>
+              <ProtectedRoute roles={['ADMIN', 'PATRON', 'MATRON', 'DOD']}>
                 <Students />
               </ProtectedRoute>
             } />
             <Route path="/discipline/*" element={
-              <ProtectedRoute roles={['ADMIN', 'PATRON']}>
+              <ProtectedRoute roles={['ADMIN', 'PATRON', 'MATRON', 'DOD']}>
                 <DisciplineDashboard />
               </ProtectedRoute>
             } />
             <Route path="/permissions/*" element={
-              <ProtectedRoute roles={['ADMIN', 'PATRON', 'TEACHER']}>
+              <ProtectedRoute roles={['ADMIN', 'PATRON', 'MATRON', 'DOD']}>
                 <Permissions />
               </ProtectedRoute>
             } />
                         <Route path="/attendance/*" element={
-              <ProtectedRoute roles={['ADMIN', 'PATRON', 'TEACHER']}>
+              <ProtectedRoute roles={['ADMIN', 'PATRON', 'MATRON', 'DOD']}>
                 <Attendance />
               </ProtectedRoute>
             } />
                         <Route path="/transport/*" element={
-              <ProtectedRoute roles={['ADMIN', 'PATRON', 'BURSAR', 'TEACHER']}>
+              <ProtectedRoute roles={['ADMIN', 'SECURITY']}>
                 <TransportTracking />
               </ProtectedRoute>
             } />
             <Route path="/smart-bell/*" element={
-              <ProtectedRoute roles={['ADMIN', 'PATRON', 'BURSAR', 'TEACHER']}>
+              <ProtectedRoute roles={['ADMIN']}>
                 <SmartBell />
               </ProtectedRoute>
             } />

@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowLeft, UserPlus } from 'lucide-react';
 import './RegisterForm.css';
 
-const availableRoles = ['PATRON', 'BURSAR', 'TEACHER', 'ADMIN'];
+const availableRoles = ['PATRON', 'MATRON', 'DOD', 'BURSAR', 'TEACHER', 'SECURITY', 'ADMIN'];
 
 function RegisterForm({ onSubmit, submitting, error }) {
   const [username, setUsername] = useState('');

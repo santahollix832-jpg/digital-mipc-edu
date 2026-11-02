@@ -103,7 +103,7 @@ router.post('/register', authenticateRequest, requireRoles('ADMIN'), async (req,
   const fullName = typeof req.body?.full_name === 'string' ? req.body.full_name.trim() : '';
   const password = typeof req.body?.password === 'string' ? req.body.password : '';
   const role = typeof req.body?.role === 'string' ? req.body.role.toUpperCase() : '';
-  const allowedRoles = ['ADMIN', 'PATRON', 'BURSAR', 'TEACHER'];
+  const allowedRoles = ['ADMIN', 'PATRON', 'MATRON', 'DOD', 'BURSAR', 'TEACHER', 'SECURITY'];
 
   if (
     !username ||

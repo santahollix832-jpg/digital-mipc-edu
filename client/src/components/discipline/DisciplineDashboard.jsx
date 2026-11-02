@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
-import { AlertOctagon, Award, BarChart3, FileText, Gavel, LayoutDashboard, QrCode, Settings, ShieldAlert } from 'lucide-react';
+import { AlertOctagon, Award, BarChart3, CheckCircle2, FileText, Gavel, LayoutDashboard, QrCode, Settings, ShieldAlert } from 'lucide-react';
 import IncidentForm from './IncidentForm';
+import PendingApprovals from './PendingApprovals';
+import { useAuth } from '../../auth/AuthContext';
 
 const tabDetails = {
   dashboard: {
@@ -10,6 +12,10 @@ const tabDetails = {
   incidents: {
     title: 'Incident Reporting',
     description: 'Record and report a student discipline incident.',
+  },
+  approvals: {
+    title: 'Approval Management',
+    description: 'Review, approve, or reject pending discipline incidents.',
   },
   passes: {
     title: 'Leave Permissions',
@@ -40,6 +46,7 @@ const tabDetails = {
 const tabs = [
   { id: 'dashboard', label: 'Dashboard Overview', icon: LayoutDashboard },
   { id: 'incidents', label: 'Incident Reporting', icon: AlertOctagon },
+  { id: 'approvals', label: 'Approval Management', icon: CheckCircle2, approverOnly: true },
   { id: 'passes', label: 'Leave Permissions', icon: FileText },
   { id: 'punishments', label: 'Corrective Actions', icon: Gavel },
   { id: 'merits', label: 'Merit & Demerit', icon: Award },
@@ -49,7 +56,10 @@ const tabs = [
 ];
 
 function DisciplineDashboard() {
+  const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('dashboard');
+  const isApprover = user?.role === 'ADMIN' || user?.role === 'DOD';
+  const visibleTabs = tabs.filter((tab) => !tab.approverOnly || isApprover);
   const activeDetails = tabDetails[activeTab] ?? tabDetails.dashboard;
 
   return (
@@ -65,7 +75,7 @@ function DisciplineDashboard() {
       </header>
 
       <nav className="mb-6 flex flex-wrap gap-2 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm">
-        {tabs.map(({ id, label, icon: Icon }) => (
+        {visibleTabs.map(({ id, label, icon: Icon }) => (
           <button
             key={id}
             type="button"
@@ -84,6 +94,16 @@ function DisciplineDashboard() {
 
       {activeTab === 'incidents' ? (
         <IncidentForm />
+      ) : activeTab === 'approvals' && isApprover ? (
+        <PendingApprovals />
+      ) : activeTab === 'dashboard' && isApprover ? (
+        <div className="space-y-6">
+          <PendingApprovals />
+          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_45px_rgba(15,23,42,0.04)]">
+            <h2 className="text-lg font-semibold text-slate-900">{activeDetails.title}</h2>
+            <p className="mt-2 text-slate-600">{activeDetails.description}</p>
+          </section>
+        </div>
       ) : (
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_45px_rgba(15,23,42,0.04)]">
           <h2 className="text-lg font-semibold text-slate-900">{activeDetails.title}</h2>
