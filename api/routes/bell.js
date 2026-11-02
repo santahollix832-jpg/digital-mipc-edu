@@ -103,23 +103,85 @@ router.delete('/schedules/:id', async (req, res, next) => {
 });
 
 // ==========================================
+// 🖥️ GET /api/bell/device — hardware health
+// ==========================================
+router.get('/device', async (req, res, next) => {
+  try {
+    const result = await pool.query('SELECT * FROM bell_device WHERE id = 1;');
+    const device = result.rows[0] || null;
+    if (device) {
+      // Consider the device offline if it hasn't pinged in the last 2 minutes.
+      const stale = !device.last_ping || (Date.now() - new Date(device.last_ping).getTime()) > 120000;
+      device.is_online = !stale && device.is_online;
+      device.last_ping = device.last_ping || null;
+    }
+    res.json({ success: true, device });
+  } catch (err) {
+    console.error('BELL_DEVICE_FETCH_ERROR:', err);
+    next(err);
+  }
+});
+
+// ==========================================
+// 🖥️ POST /api/bell/device/heartbeat — IoT firmware ping
+// ==========================================
+router.post('/device/heartbeat', async (req, res, next) => {
+  try {
+    const { device_id, ip_address, uptime_seconds, firmware_version } = req.body || {};
+    const result = await pool.query(
+      `UPDATE bell_device
+       SET device_id = COALESCE(NULLIF($1, ''), device_id),
+           ip_address = COALESCE(NULLIF($2, ''), ip_address),
+           uptime_seconds = COALESCE($3, uptime_seconds),
+           firmware_version = COALESCE(NULLIF($4, ''), firmware_version),
+           is_online = TRUE,
+           last_ping = CURRENT_TIMESTAMP,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = 1
+       RETURNING *;`,
+      [device_id || null, ip_address || null, uptime_seconds ? parseInt(uptime_seconds) || 0 : null, firmware_version || null]
+    );
+    if (result.rowCount === 0) {
+      return res.status(404).json({ success: false, error: 'Bell device record not found.' });
+    }
+    res.json({ success: true, device: result.rows[0] });
+  } catch (err) {
+    console.error('BELL_DEVICE_HEARTBEAT_ERROR:', err);
+    next(err);
+  }
+});
+
+// ==========================================
 // 🔔 POST /api/bell/trigger — manual override (ring the bell now)
 // ==========================================
 router.post('/trigger', async (req, res, next) => {
   try {
     // req.user is populated by the authenticateRequest middleware
     const userId = req.user?.id || null;
-    const { note, schedule_id } = req.body || {};
+    const { note, schedule_id, preset, duration_seconds } = req.body || {};
+
+    // 🔌 Hardware bridge: in a real deployment this would dispatch MQTT/HTTP
+    // to the ESP32 relay module. Simulated here with a success result.
+    let hardwareAck = false;
+    try {
+      const deviceRes = await pool.query('SELECT is_online FROM bell_device WHERE id = 1;');
+      hardwareAck = !!(deviceRes.rows[0] && deviceRes.rows[0].is_online);
+    } catch (deviceErr) {
+      console.warn('BELL_DEVICE_STATUS_UNAVAILABLE:', deviceErr.message);
+    }
+
+    const triggerNote = preset ? `${preset} — ${note || 'Manual override triggered'}` : (note || 'Manual override triggered');
 
     const result = await pool.query(
       `INSERT INTO bell_logs (trigger_type, status, user_id, schedule_id, note)
        VALUES ('Manual', 'Success', $1, $2, $3)
        RETURNING *;`,
-      [userId, schedule_id ? parseInt(schedule_id) : null, note || 'Manual override triggered']
+      [userId, schedule_id ? parseInt(schedule_id) : null, triggerNote]
     );
     res.status(201).json({
       success: true,
-      message: 'Bell triggered manually.',
+      message: `Bell triggered (${preset || 'manual'})${duration_seconds ? ` for ${duration_seconds}s` : ''}.`,
+      hardware_acknowledged: hardwareAck,
       log: result.rows[0],
     });
   } catch (err) {

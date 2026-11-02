@@ -190,6 +190,21 @@ async function ensureDatabaseSchema() {
     );
   `);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_bell_logs_triggered_at ON bell_logs(triggered_at DESC);');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bell_device (
+      id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
+      device_id VARCHAR(50) NOT NULL DEFAULT 'BELL-ESP32-001',
+      ip_address VARCHAR(45) NOT NULL DEFAULT '192.168.1.50',
+      is_online BOOLEAN NOT NULL DEFAULT FALSE,
+      last_ping TIMESTAMPTZ,
+      uptime_seconds BIGINT NOT NULL DEFAULT 0,
+      firmware_version VARCHAR(30) NOT NULL DEFAULT '1.0.0',
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  await pool.query(`
+    INSERT INTO bell_device (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
+  `);
 }
 
 let schemaInitializationError = null;
