@@ -1,14 +1,15 @@
 import React, { useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { BookOpenCheck, CalendarCheck2, ChevronLeft, ChevronRight, GraduationCap, LogOut, Menu, ShieldAlert, Users, X } from 'lucide-react';
+import { Bell, BookOpenCheck, Bus, CalendarCheck2, ChevronLeft, ChevronRight, LogOut, Menu, ShieldAlert, Users, X } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 
 const menuItems = [
   { label: 'Students', to: '/students', icon: Users, roles: ['ADMIN', 'PATRON', 'BURSAR', 'TEACHER'] },
   { label: 'Attendance', to: '/attendance', icon: CalendarCheck2, roles: ['ADMIN', 'PATRON', 'TEACHER'] },
   { label: 'Permissions', to: '/permissions', icon: BookOpenCheck, roles: ['ADMIN', 'PATRON', 'TEACHER'] },
-  { label: 'Discipline', to: '/discipline', icon: ShieldAlert, roles: ['ADMIN', 'PATRON'] },
-  { label: 'School Fees', to: '/school-fees', icon: GraduationCap, roles: ['ADMIN', 'BURSAR'] },
+    { label: 'Discipline', to: '/discipline', icon: ShieldAlert, roles: ['ADMIN', 'PATRON'] },
+  { label: 'Transport Tracking', to: '/transport', icon: Bus, roles: ['ADMIN', 'PATRON', 'BURSAR', 'TEACHER'] },
+  { label: 'IoT Smart Bell', to: '/smart-bell', icon: Bell, roles: ['ADMIN', 'PATRON', 'BURSAR', 'TEACHER'] },
 ];
 
 function Sidebar({ user, isOpen, onClose }) {

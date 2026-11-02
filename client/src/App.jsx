@@ -198,14 +198,19 @@ function AuthenticatedApp() {
                 <Permissions />
               </ProtectedRoute>
             } />
-            <Route path="/attendance/*" element={
+                        <Route path="/attendance/*" element={
               <ProtectedRoute roles={['ADMIN', 'PATRON', 'TEACHER']}>
                 <Attendance />
               </ProtectedRoute>
             } />
-            <Route path="/school-fees/*" element={
-              <ProtectedRoute roles={['ADMIN', 'BURSAR']}>
-                <ModulePlaceholder title="School Fees" />
+            <Route path="/transport/*" element={
+              <ProtectedRoute roles={['ADMIN', 'PATRON', 'BURSAR', 'TEACHER']}>
+                <ModulePlaceholder title="Transport Tracking" />
+              </ProtectedRoute>
+            } />
+            <Route path="/smart-bell/*" element={
+              <ProtectedRoute roles={['ADMIN', 'PATRON', 'BURSAR', 'TEACHER']}>
+                <ModulePlaceholder title="IoT Smart Bell" />
               </ProtectedRoute>
             } />
             <Route path="*" element={<Navigate to={roleLandingPage[user.role] || '/students'} replace />} />

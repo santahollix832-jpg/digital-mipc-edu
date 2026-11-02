@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Check, ChevronLeft, ChevronRight, CircleX, Clock3, Filter, Search } from 'lucide-react';
 import { apiFetch } from '../api/config';
 import { useToast } from './ToastProvider';
+import StudentSearchInput from './StudentSearchInput';
 
 const emptyForm = {
   student_id: '',
@@ -260,18 +261,13 @@ function Permissions() {
           <form onSubmit={handleSubmit} className="grid gap-4 md:grid-cols-2">
             <label className="block md:col-span-2">
               <span className="mb-2 block text-sm font-medium text-slate-700">Student</span>
-              <select
-                name="student_id"
+              <StudentSearchInput
+                students={students}
                 value={form.student_id}
-                onChange={handleInputChange}
-                required
-                className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:bg-white"
-              >
-                <option value="">Select a student</option>
-                {students.map((student) => (
-                  <option key={student.id} value={student.id}>{student.name} · {student.class_name} · {student.reg_number}</option>
-                ))}
-              </select>
+                onChange={(studentId) => setForm((current) => ({ ...current, student_id: studentId }))}
+                placeholder="Search by name or registration number..."
+                inputClassName="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-10 pr-8 text-sm outline-none transition focus:border-indigo-400 focus:bg-white"
+              />
             </label>
 
             <label className="block md:col-span-2">

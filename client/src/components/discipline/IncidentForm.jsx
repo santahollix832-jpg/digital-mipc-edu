@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { AlertCircle, Calendar, Clock, User, FileText, Send, CheckCircle2 } from 'lucide-react';
 import { apiFetch } from '../../api/config';
+import StudentSearchInput from '../StudentSearchInput';
 
 const IncidentForm = () => {
   const [formData, setFormData] = useState({
@@ -127,21 +128,14 @@ const IncidentForm = () => {
               <div>
                 <label className={labelClasses}>Student ID / Name</label>
                 <div className="relative">
-                  <User className="absolute left-3 top-3 text-slate-400" size={18} />
-                  <select
-                    className={`${inputClasses} pl-10`}
+                  <User className="absolute left-3 top-3 z-10 text-slate-400" size={18} />
+                  <StudentSearchInput
+                    students={students}
                     value={formData.studentId}
-                    onChange={(e) => setFormData({...formData, studentId: e.target.value})}
-                    required
+                    onChange={(studentId) => setFormData({ ...formData, studentId })}
                     disabled={Boolean(studentLoadError)}
-                  >
-                    <option value="">Select Student</option>
-                    {students.map((student) => (
-                      <option key={student.id} value={student.id}>
-                        {student.name} ({student.reg_number})
-                      </option>
-                    ))}
-                  </select>
+                    inputClassName={`${inputClasses} pl-10 pr-8`}
+                  />
                 </div>
                 {studentLoadError && <p className="mt-1 text-sm text-rose-600">{studentLoadError}</p>}
               </div>
