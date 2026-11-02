@@ -8,6 +8,8 @@ const feesRouter = require('./routes/fees');
 const staffRouter = require('./routes/staff');
 const disciplineRouter = require('./routes/discipline');
 const attendanceRouter = require('./routes/attendance');
+const transportRouter = require('./routes/transport');
+const bellRouter = require('./routes/bell');
 const authRouter = require('./routes/auth');
 const pool = require('./config/database');
 const { authenticateRequest, requireRoles } = require('./middleware/auth');
@@ -130,6 +132,64 @@ async function ensureDatabaseSchema() {
   await pool.query('ALTER TABLE discipline_incidents ADD COLUMN IF NOT EXISTS incident_time TIME NOT NULL DEFAULT CURRENT_TIME;');
   await pool.query('ALTER TABLE discipline_incidents ADD COLUMN IF NOT EXISTS location VARCHAR(255);');
   await pool.query('ALTER TABLE discipline_incidents ADD COLUMN IF NOT EXISTS action_taken TEXT;');
+
+  // Transport Tracking & IoT Smart Bell modules
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS buses (
+      id SERIAL PRIMARY KEY,
+      bus_number VARCHAR(20) NOT NULL UNIQUE,
+      driver_name VARCHAR(100) NOT NULL,
+      route_name VARCHAR(150) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'In Transit'
+        CHECK (status IN ('In Transit', 'Delayed', 'Completed')),
+      speed INT NOT NULL DEFAULT 0 CHECK (speed >= 0),
+      capacity INT NOT NULL DEFAULT 50 CHECK (capacity > 0),
+      passengers_count INT NOT NULL DEFAULT 0 CHECK (passengers_count >= 0),
+      driver_phone VARCHAR(30),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_buses_status ON buses(status);');
+  await pool.query(`
+    CREATE OR REPLACE FUNCTION set_updated_at()
+    RETURNS TRIGGER AS $$
+    BEGIN
+      NEW.updated_at = CURRENT_TIMESTAMP;
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+  `);
+  await pool.query(`
+    DROP TRIGGER IF EXISTS trg_buses_updated_at ON buses;
+    CREATE TRIGGER trg_buses_updated_at
+      BEFORE UPDATE ON buses
+      FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bell_schedules (
+      id SERIAL PRIMARY KEY,
+      time TIME NOT NULL,
+      title VARCHAR(150) NOT NULL,
+      days VARCHAR(50) NOT NULL DEFAULT 'Mon-Fri',
+      tone VARCHAR(50) NOT NULL DEFAULT 'Standard Bell',
+      is_active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS bell_logs (
+      id SERIAL PRIMARY KEY,
+      triggered_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      trigger_type VARCHAR(20) NOT NULL
+        CHECK (trigger_type IN ('Automated', 'Manual')),
+      status VARCHAR(20) NOT NULL DEFAULT 'Success'
+        CHECK (status IN ('Success', 'Failed', 'Cancelled')),
+      user_id INTEGER REFERENCES users(id) ON DELETE SET NULL,
+      schedule_id INTEGER REFERENCES bell_schedules(id) ON DELETE SET NULL,
+      note VARCHAR(255)
+    );
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_bell_logs_triggered_at ON bell_logs(triggered_at DESC);');
 }
 
 let schemaInitializationError = null;
@@ -167,6 +227,12 @@ app.use('/api/discipline', requireRoles('ADMIN', 'PATRON'), disciplineRouter);
 
 // Connect attendance module route
 app.use('/api/attendance', requireRoles('ADMIN', 'PATRON', 'TEACHER'), attendanceRouter);
+
+// Connect transport tracking module route
+app.use('/api/transport', requireRoles('ADMIN', 'PATRON', 'TEACHER'), transportRouter);
+
+// Connect IoT smart bell module route
+app.use('/api/bell', requireRoles('ADMIN', 'PATRON', 'TEACHER'), bellRouter);
 
 // ==========================================
 // 🌟 1. STUDENTS MODULE (CRUD)
