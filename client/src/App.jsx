@@ -9,6 +9,8 @@ import Permissions from './components/Permissions';
 import Students from './components/Students';
 import Attendance from './components/Attendance';
 import Sidebar from './components/Sidebar';
+import TransportTracking from './components/TransportTracking';
+import SmartBell from './components/SmartBell';
 import { ToastProvider } from './components/ToastProvider';
 
 const roleLandingPage = {
@@ -203,14 +205,14 @@ function AuthenticatedApp() {
                 <Attendance />
               </ProtectedRoute>
             } />
-            <Route path="/transport/*" element={
+                        <Route path="/transport/*" element={
               <ProtectedRoute roles={['ADMIN', 'PATRON', 'BURSAR', 'TEACHER']}>
-                <ModulePlaceholder title="Transport Tracking" />
+                <TransportTracking />
               </ProtectedRoute>
             } />
             <Route path="/smart-bell/*" element={
               <ProtectedRoute roles={['ADMIN', 'PATRON', 'BURSAR', 'TEACHER']}>
-                <ModulePlaceholder title="IoT Smart Bell" />
+                <SmartBell />
               </ProtectedRoute>
             } />
             <Route path="*" element={<Navigate to={roleLandingPage[user.role] || '/students'} replace />} />
