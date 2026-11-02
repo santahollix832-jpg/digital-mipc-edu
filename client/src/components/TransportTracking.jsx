@@ -17,6 +17,7 @@ import {
   X,
 } from 'lucide-react';
 import { apiFetch } from '../api/config';
+import RouteMapModal from './RouteMapModal';
 
 const STATUS_OPTIONS = ['In Transit', 'Delayed', 'Completed'];
 
@@ -43,6 +44,7 @@ const TransportTracking = () => {
   const [form, setForm] = useState(emptyForm);
   const [assignForm, setAssignForm] = useState({ bus_id: '', student_name: '', class_name: '' });
   const [saving, setSaving] = useState(false);
+  const [mapBus, setMapBus] = useState(null); // bus currently open in the live route map
 
   const loadFleet = useCallback(async () => {
     setLoading(true);
@@ -96,7 +98,7 @@ const TransportTracking = () => {
       const bus = buses.find((b) => String(b.id) === String(assignForm.bus_id));
       if (!bus) throw new Error('Bus not found.');
 
-      const nextCount = Math.min((busDetail.passengers_count || 0) + 1, busDetail.capacity);
+      const nextCount = Math.min((bus.passengers_count || 0) + 1, bus.capacity || 50);
       const putRes = await apiFetch(`/transport/buses/${assignForm.bus_id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -110,6 +112,21 @@ const TransportTracking = () => {
       alert(err.message);
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleSaveRoute = async (busId, routePoints) => {
+    try {
+      const res = await apiFetch(`/transport/buses/${busId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ route_points: routePoints }),
+      });
+      if (!res.ok) throw new Error('Failed to save route.');
+      setMapBus(null);
+      loadFleet();
+    } catch (err) {
+      alert(err.message);
     }
   };
 
@@ -300,7 +317,11 @@ const TransportTracking = () => {
                       <button title="Call Driver" className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
                         <Phone size={18} />
                       </button>
-                      <button title="View Live" className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
+                      <button
+                        title="View Live Route Map"
+                        onClick={() => setMapBus(bus)}
+                        className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                      >
                         <Eye size={18} />
                       </button>
                       <button
@@ -326,6 +347,15 @@ const TransportTracking = () => {
           </div>
         </div>
       </div>
+
+      {/* Route Map Modal */}
+      {mapBus && (
+        <RouteMapModal
+          bus={buses.find((b) => String(b.id) === String(mapBus.id)) || mapBus}
+          onClose={() => setMapBus(null)}
+          onSaveRoute={handleSaveRoute}
+        />
+      )}
 
       {/* Add Bus Modal */}
       {showAddModal && (
