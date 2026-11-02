@@ -2,7 +2,14 @@ import React, { useState } from 'react';
 import { AlertOctagon, Award, BarChart3, CheckCircle2, FileText, Gavel, LayoutDashboard, QrCode, Settings, ShieldAlert } from 'lucide-react';
 import IncidentForm from './IncidentForm';
 import PendingApprovals from './PendingApprovals';
+import LeavePermissions from './LeavePermissions';
+import CorrectiveActions from './CorrectiveActions';
+import MeritDemerit from './MeritDemerit';
+import SmartCardScanner from './SmartCardScanner';
+import AnalyticsReports from './AnalyticsReports';
+import RulesSettings from './RulesSettings';
 import { useAuth } from '../../auth/AuthContext';
+import { useToast } from '../ToastProvider';
 
 const tabDetails = {
   dashboard: {
@@ -19,27 +26,27 @@ const tabDetails = {
   },
   passes: {
     title: 'Leave Permissions',
-    description: 'Manage student leave and permission requests.',
+    description: 'Issue, approve, and monitor student exit / entry permits.',
   },
   punishments: {
     title: 'Corrective Actions',
-    description: 'Review and manage corrective actions.',
+    description: 'Assign and track detentions, suspensions, service, and counseling.',
   },
   merits: {
     title: 'Merit & Demerit',
-    description: 'Review student merits and demerits.',
+    description: 'Point ledger driving each student\u2019s disciplinary score.',
   },
   scanner: {
     title: 'Smart Card Scanner',
-    description: 'Access discipline tools for student smart cards.',
+    description: 'Log gate movements and run instant disciplinary checks.',
   },
   reports: {
     title: 'Analytics & Reports',
-    description: 'Review discipline analytics and reports.',
+    description: 'Trends, top classes, and downloadable summaries.',
   },
   settings: {
     title: 'Rules & Settings',
-    description: 'Manage discipline rules and settings.',
+    description: 'Point thresholds, penalty triggers, and category definitions.',
   },
 };
 
@@ -57,10 +64,12 @@ const tabs = [
 
 function DisciplineDashboard() {
   const { user } = useAuth();
+  const { notify } = useToast();
   const [activeTab, setActiveTab] = useState('dashboard');
   const isApprover = user?.role === 'ADMIN' || user?.role === 'DOD';
   const visibleTabs = tabs.filter((tab) => !tab.approverOnly || isApprover);
   const activeDetails = tabDetails[activeTab] ?? tabDetails.dashboard;
+  const toast = notify;
 
   return (
     <main className="min-w-0 flex-1 p-6 md:p-10">
@@ -96,13 +105,22 @@ function DisciplineDashboard() {
         <IncidentForm />
       ) : activeTab === 'approvals' && isApprover ? (
         <PendingApprovals />
+      ) : activeTab === 'passes' ? (
+        <LeavePermissions toast={toast} />
+      ) : activeTab === 'punishments' ? (
+        <CorrectiveActions toast={toast} />
+      ) : activeTab === 'merits' ? (
+        <MeritDemerit toast={toast} />
+      ) : activeTab === 'scanner' ? (
+        <SmartCardScanner toast={toast} />
+      ) : activeTab === 'reports' ? (
+        <AnalyticsReports toast={toast} />
+      ) : activeTab === 'settings' ? (
+        <RulesSettings toast={toast} canManage={isApprover} />
       ) : activeTab === 'dashboard' && isApprover ? (
         <div className="space-y-6">
           <PendingApprovals />
-          <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_45px_rgba(15,23,42,0.04)]">
-            <h2 className="text-lg font-semibold text-slate-900">{activeDetails.title}</h2>
-            <p className="mt-2 text-slate-600">{activeDetails.description}</p>
-          </section>
+          <AnalyticsReports toast={toast} />
         </div>
       ) : (
         <section className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_20px_45px_rgba(15,23,42,0.04)]">

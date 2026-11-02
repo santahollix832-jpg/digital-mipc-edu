@@ -145,6 +145,58 @@ async function ensureDatabaseSchema() {
   await pool.query('ALTER TABLE discipline_incidents ADD COLUMN IF NOT EXISTS reviewed_by VARCHAR(255);');
   await pool.query('ALTER TABLE discipline_incidents ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMP;');
   await pool.query('ALTER TABLE discipline_incidents ADD COLUMN IF NOT EXISTS review_notes TEXT;');
+  // Discipline sub-modules: corrective actions, merit/demerit ledger, gate scans, rules
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS corrective_actions (
+      id SERIAL PRIMARY KEY,
+      student_id INT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      incident_id INT REFERENCES discipline_incidents(id) ON DELETE SET NULL,
+      action_type VARCHAR(100) NOT NULL,
+      reason TEXT NOT NULL,
+      assigned_by VARCHAR(255) NOT NULL DEFAULT '',
+      due_date DATE,
+      status VARCHAR(20) NOT NULL DEFAULT 'Pending'
+        CHECK (status IN ('Pending', 'In Progress', 'Completed')),
+      completed_at TIMESTAMP,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS merit_demerit_entries (
+      id SERIAL PRIMARY KEY,
+      student_id INT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      incident_id INT REFERENCES discipline_incidents(id) ON DELETE SET NULL,
+      entry_type VARCHAR(10) NOT NULL CHECK (entry_type IN ('merit', 'demerit')),
+      points INT NOT NULL CHECK (points > 0 AND points <= 100),
+      reason TEXT NOT NULL,
+      awarded_by VARCHAR(255) NOT NULL DEFAULT '',
+      awarded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS gate_scans (
+      id BIGSERIAL PRIMARY KEY,
+      student_id INT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      scan_value VARCHAR(128) NOT NULL,
+      scan_type VARCHAR(10) NOT NULL DEFAULT 'manual' CHECK (scan_type IN ('qr', 'nfc', 'manual')),
+      gate VARCHAR(100) NOT NULL DEFAULT 'Main Gate',
+      direction VARCHAR(3) NOT NULL DEFAULT 'IN' CHECK (direction IN ('IN', 'OUT')),
+      scanned_by VARCHAR(255) NOT NULL DEFAULT '',
+      scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS discipline_settings (
+      setting_key VARCHAR(100) PRIMARY KEY,
+      setting_value TEXT NOT NULL,
+      updated_by VARCHAR(255) NOT NULL DEFAULT '',
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_corrective_actions_student ON corrective_actions (student_id);');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_merit_demerit_student ON merit_demerit_entries (student_id);');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_gate_scans_student ON gate_scans (student_id);');
 
   // Transport Tracking & IoT Smart Bell modules
   await pool.query(`
@@ -253,6 +305,9 @@ app.use('/api/staff', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD'), staffRou
 // Connect discipline module route
 // Discipline: PATRON/MATRON can report incidents; DOD/ADMIN manage the approval workflow.
 app.use('/api/discipline', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD'), disciplineRouter);
+// Discipline sub-modules (leave grid uses /api/permissions; these cover actions, points, scans, analytics, settings)
+const disciplineModulesRouter = require('./routes/disciplineModules');
+app.use('/api/discipline', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD'), disciplineModulesRouter);
 
 // Connect attendance module route
 app.use('/api/attendance', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD'), attendanceRouter);
