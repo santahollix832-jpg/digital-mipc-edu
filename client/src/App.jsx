@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import { useState } from 'react';
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth/AuthContext';
 import LoginForm from './components/auth/LoginForm';
@@ -12,17 +12,35 @@ import Sidebar from './components/Sidebar';
 import GateReturnTracking from './components/GateReturnTracking';
 import TransportTracking from './components/TransportTracking';
 import SmartBell from './components/SmartBell';
+import Settings from './components/Settings';
+import RoleDashboard from './components/RoleDashboard';
+import { ThemeProvider } from './theme/ThemeContext';
 import { ToastProvider } from './components/ToastProvider';
 
 const roleLandingPage = {
-  ADMIN: '/students',
-  PATRON: '/students',
-  MATRON: '/students',
-  DOD: '/discipline',
-  SECURITY: '/gate',
+  ADMIN: '/dashboard',
+  PATRON: '/dashboard',
+  MATRON: '/dashboard',
+  DOD: '/dashboard',
+  SECURITY: '/dashboard',
   BURSAR: '/students',
   TEACHER: '/students',
 };
+
+function ThemeProviderWrapper({ children }) {
+  const { user } = useAuth();
+  return (
+    <ThemeProvider user={user}>
+      {children}
+      <style>{`
+        @keyframes mipc-fade-up { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fade-up { animation: mipc-fade-up 250ms ease both; }
+        .animate-in { animation: mipc-fade-in 150ms ease both; }
+        @keyframes mipc-fade-in { from { opacity: 0; } to { opacity: 1; } }
+      `}</style>
+    </ThemeProvider>
+  );
+}
 
 function LoginPage() {
   const { user, login, loading, authError } = useAuth();
@@ -56,16 +74,16 @@ function Dashboard() {
   const { user } = useAuth();
   const location = useLocation();
   return (
-    <main className="p-6 md:p-10">
-      <p className="text-sm font-semibold uppercase tracking-wide text-indigo-600">Dashboard</p>
-      <h1 className="mt-2 text-3xl font-bold text-slate-900">Welcome, {user.full_name}</h1>
+    <>
       {location.state?.notice && (
-        <p className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-800" role="status">
-          {location.state.notice}
-        </p>
+        <main className="p-4 md:p-8">
+          <p className="rounded-2xl border border-emerald-300/40 bg-emerald-500/15 px-4 py-3 text-emerald-100 backdrop-blur" role="status">
+            {location.state.notice}
+          </p>
+        </main>
       )}
-      <p className="mt-3 text-slate-600">You are signed in as {user.role}.</p>
-    </main>
+      <RoleDashboard role={user.role} />
+    </>
   );
 }
 
@@ -138,7 +156,8 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <ToastProvider>
+        <ThemeProviderWrapper>
+          <ToastProvider>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterRoute />} />
@@ -149,6 +168,7 @@ function App() {
             } />
           </Routes>
         </ToastProvider>
+        </ThemeProviderWrapper>
       </AuthProvider>
     </BrowserRouter>
   );
@@ -159,20 +179,20 @@ function AuthenticatedApp() {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-900">
+    <div className="app-shell min-h-screen text-white">
       <div className="md:hidden">
-        <div className="flex items-center justify-between border-b border-slate-200 bg-white px-4 py-3 shadow-sm">
+        <div className="wp-glass flex items-center justify-between border-b px-4 py-3 shadow-sm">
           <div className="flex items-center gap-2">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-sm font-bold text-white">D</div>
+            <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-600 text-sm font-bold text-white shadow-lg shadow-indigo-500/40">D</div>
             <div>
-              <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Digital MIPC</p>
-              <p className="text-sm font-semibold text-slate-800">EDU</p>
+              <p className="text-xs uppercase tracking-[0.2em] text-indigo-300">Digital MIPC</p>
+              <p className="text-sm font-semibold text-white">EDU</p>
             </div>
           </div>
           <button
             type="button"
             onClick={() => setMobileOpen((current) => !current)}
-            className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700"
+            className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-sm font-medium text-white backdrop-blur"
           >
             Menu
           </button>
@@ -217,6 +237,11 @@ function AuthenticatedApp() {
             <Route path="/transport/*" element={
               <ProtectedRoute roles={['ADMIN', 'PATRON', 'MATRON', 'DOD', 'SECURITY']}>
                 <TransportTracking />
+              </ProtectedRoute>
+            } />
+            <Route path="/settings/*" element={
+              <ProtectedRoute>
+                <Settings />
               </ProtectedRoute>
             } />
             <Route path="/smart-bell/*" element={
