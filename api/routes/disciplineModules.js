@@ -88,12 +88,24 @@ router.patch('/actions/:id/status', async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Merit & demerit point ledger
+// Merit & demerit point ledger (Conduit System — 40-point base score)
 // ---------------------------------------------------------------------------
 
-// GET /api/discipline/points - full ledger with running totals per student
+async function getConduitBasePoints() {
+  try {
+    const result = await pool.query("SELECT setting_value FROM discipline_settings WHERE setting_key = 'conduit_base_points';");
+    if (result.rowCount) {
+      const parsed = Number(String(result.rows[0].setting_value).replace(/["']/g, ''));
+      if (Number.isFinite(parsed) && parsed > 0) return Math.round(parsed);
+    }
+  } catch { /* fall back to default */ }
+  return 40;
+}
+
+// GET /api/discipline/points - full ledger with Conduit balance per student
 router.get('/points', async (req, res) => {
   try {
+    const base = await getConduitBasePoints();
     const ledger = await pool.query(`
       SELECT md.*, s.name AS student_name, s.class AS class_name, s.reg_number AS student_custom_id
       FROM merit_demerit_entries md
@@ -104,27 +116,25 @@ router.get('/points', async (req, res) => {
       SELECT s.id AS student_id, s.name AS student_name, s.class AS class_name, s.reg_number AS student_custom_id,
              COALESCE(SUM(CASE WHEN md.entry_type = 'merit' THEN md.points END), 0)::INT AS merits,
              COALESCE(SUM(CASE WHEN md.entry_type = 'demerit' THEN md.points END), 0)::INT AS demerits,
-             COALESCE(SUM(CASE WHEN md.entry_type = 'merit' THEN md.points ELSE -md.points END), 0)::INT AS balance
+             LEAST(GREATEST($1 + COALESCE(SUM(CASE WHEN md.entry_type = 'merit' THEN md.points ELSE -md.points END), 0), 0), $1)::INT AS conduit_points
       FROM students s
       LEFT JOIN merit_demerit_entries md ON md.student_id = s.id
       GROUP BY s.id, s.name, s.class, s.reg_number
-      HAVING COALESCE(SUM(CASE WHEN md.entry_type = 'merit' THEN md.points ELSE -md.points END), 0) != 0
-          OR EXISTS (SELECT 1 FROM merit_demerit_entries m2 WHERE m2.student_id = s.id)
-      ORDER BY balance ASC;
-    `);
-    res.json({ success: true, ledger: ledger.rows, totals: totals.rows });
+      ORDER BY conduit_points DESC;
+    `, [base]);
+    res.json({ success: true, base_points: base, ledger: ledger.rows, totals: totals.rows });
   } catch (err) {
     console.error('[GET /discipline/points]', err.message);
     res.status(500).json({ success: false, message: 'Internal server error', error: err.message });
   }
 });
 
-// POST /api/discipline/points - award merit or demerit
+// POST /api/discipline/points - award merit or demerit (Conduit capped at base)
 router.post('/points', async (req, res) => {
   const body = req.body || {};
   const studentId = parseStudentId(body.student_id ?? body.studentId);
   const entryType = String(body.entry_type ?? body.entryType ?? '').toLowerCase();
-  const points = Math.round(Number(body.points));
+  let points = Math.round(Number(body.points));
   const reason = String(body.reason ?? '').trim();
   const awardedBy = String(body.awarded_by ?? body.awardedBy ?? req.user?.full_name ?? '').trim();
 
@@ -136,6 +146,28 @@ router.post('/points', async (req, res) => {
   }
 
   try {
+    const base = await getConduitBasePoints();
+
+    if (entryType === 'merit') {
+      // Merits restore the Conduit score but can never exceed the 40-point base.
+      const balance = await pool.query(
+        `SELECT COALESCE(SUM(CASE WHEN entry_type = 'merit' THEN points ELSE -points END), 0)::INT AS net
+         FROM merit_demerit_entries WHERE student_id = $1;`,
+        [studentId]
+      );
+      const net = balance.rows[0]?.net ?? 0;
+      const headroom = Math.max(base - net, 0);
+      if (headroom === 0) {
+        return res.status(409).json({
+          success: false,
+          message: `Conduit score is already at the maximum of ${base} points for this student.`,
+        });
+      }
+      if (points > headroom) {
+        points = headroom;
+      }
+    }
+
     const result = await pool.query(
       `INSERT INTO merit_demerit_entries (student_id, entry_type, points, reason, awarded_by, incident_id)
        VALUES ($1, $2, $3, $4, $5, $6)
@@ -313,6 +345,7 @@ const DEFAULT_RULES = {
   demerit_default_points: 5,
   suspension_threshold: 30,
   counseling_threshold: 15,
+  conduit_base_points: 40,
   auto_suspension_enabled: true,
   auto_parent_notification: true,
   categories: RULE_CATEGORIES,
