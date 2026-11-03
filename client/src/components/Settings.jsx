@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   Bell, Building2, Check, DatabaseBackup, Download, Eye, KeyRound, Lock, Palette,
-  RefreshCw, Save, School, Settings2, Shield, ShieldCheck, Sliders, Sparkles,
+  RefreshCw, Save, School, Settings2, Shield, ShieldAlert, ShieldCheck, Sliders, Sparkles,
   Upload, UserCircle, Users, Volume2,
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
