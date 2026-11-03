@@ -5,6 +5,7 @@ import { useToast } from './ToastProvider';
 import './Students.css';
 
 const PAGE_SIZE = 7;
+const TRANSPORT_ROUTES = ['Kigali', 'Rubavu', 'Huye', 'Muhanga', 'Parent Pick-Up'];
 const emptyForm = {
   id: null,
   name: '',
@@ -12,6 +13,7 @@ const emptyForm = {
   class_name: '',
   gender: 'Female',
   status: 'Boarding',
+  preferred_route: 'Parent Pick-Up',
   guardian_email: '',
   guardian_phone: '',
   photo_url: '',
@@ -31,9 +33,32 @@ function Students() {
   const [saving, setSaving] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [deleteStudent, setDeleteStudent] = useState(null);
+  const [conduitByStudent, setConduitByStudent] = useState({});
 
   useEffect(() => {
     loadStudents();
+  }, []);
+
+  // Conduit meters (real-time 40-point base balances) for profile cards
+  useEffect(() => {
+    let active = true;
+    (async () => {
+      try {
+        const response = await apiFetch('/discipline/conduit');
+        if (!response.ok) return;
+        const payload = await response.json();
+        if (active && payload?.data) {
+          const map = {};
+          for (const row of payload.data) {
+            map[row.student_id] = row;
+          }
+          setConduitByStudent(map);
+        }
+      } catch {
+        /* meters simply stay hidden if the discipline module is unavailable */
+      }
+    })();
+    return () => { active = false; };
   }, []);
 
   async function loadStudents() {
@@ -57,6 +82,7 @@ function Students() {
           status: student.status === 'Day Scholar' ? 'Day Scholar' : 'Boarding',
           guardian_email: student.guardian_email || '',
           guardian_phone: student.guardian_phone || '',
+          preferred_route: TRANSPORT_ROUTES.includes(student.preferred_route) ? student.preferred_route : 'Parent Pick-Up',
           photo_url: student.photo_url || student.photoUrl || '',
         }))
       );
@@ -112,6 +138,7 @@ function Students() {
       status: ['Boarding', 'Day Scholar'].includes(student.status) ? student.status : 'Boarding',
       guardian_email: student.guardian_email || '',
       guardian_phone: student.guardian_phone || '',
+      preferred_route: TRANSPORT_ROUTES.includes(student.preferred_route) ? student.preferred_route : 'Parent Pick-Up',
       photo_url: student.photo_url || '',
       photo_file: null,
     });
@@ -155,6 +182,7 @@ function Students() {
       formData.append('status', form.status || 'Boarding');
       formData.append('guardian_email', form.guardian_email);
       formData.append('guardian_phone', form.guardian_phone);
+      formData.append('preferred_route', form.preferred_route || 'Parent Pick-Up');
       if (form.photo_url && !form.photo_file && form.photo_url.startsWith('http')) {
         formData.append('photo_url', form.photo_url);
       }
@@ -197,6 +225,7 @@ function Students() {
                   status: student.status || form.status || 'Boarding',
                   guardian_email: student.guardian_email || '',
                   guardian_phone: student.guardian_phone || '',
+                  preferred_route: TRANSPORT_ROUTES.includes(student.preferred_route) ? student.preferred_route : (entry.preferred_route || 'Parent Pick-Up'),
                   photo_url: student.photo_url || entry.photo_url || '',
                 }
               : entry
@@ -213,6 +242,7 @@ function Students() {
           status: student.status || form.status || 'Boarding',
           guardian_email: student.guardian_email || '',
           guardian_phone: student.guardian_phone || '',
+          preferred_route: TRANSPORT_ROUTES.includes(student.preferred_route) ? student.preferred_route : 'Parent Pick-Up',
           photo_url: student.photo_url || '',
         }, ...current]);
         notify('New student added to the directory.', 'success');
@@ -421,7 +451,7 @@ function Students() {
                       <div className="flex justify-end gap-2">
                         <button
                           type="button"
-                          onClick={() => setSelectedStudent(student)}
+                          onClick={() => setSelectedStudent({ ...student, conduit: conduitByStudent[student.id] || null })}
                           className="rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-xs font-semibold text-slate-700 transition hover:border-indigo-200 hover:text-indigo-600"
                         >
                           View profile
@@ -584,6 +614,23 @@ function Students() {
                 </select>
               </label>
 
+              <label className="block md:col-span-2">
+                <span className="mb-2 block text-sm font-medium text-slate-700">Preferred Route / Destination (Transport)</span>
+                <select
+                  name="preferred_route"
+                  value={form.preferred_route || 'Parent Pick-Up'}
+                  onChange={handleFormChange}
+                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-indigo-400 focus:bg-white"
+                >
+                  {TRANSPORT_ROUTES.map((route) => (
+                    <option key={route} value={route}>{route}</option>
+                  ))}
+                </select>
+                <span className="mt-1 block text-xs text-slate-500">
+                  Boarding students are auto-registered on this bus route; “Parent Pick-Up” places them in the Abacyurwa n'Ababyeyi register instead.
+                </span>
+              </label>
+
               <div className="md:col-span-2 flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => setIsModalOpen(false)} className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 font-semibold text-slate-700 transition hover:border-slate-300">
                   Cancel
@@ -633,6 +680,9 @@ function Students() {
                 <div className="mt-4 inline-flex rounded-full border border-emerald-200 bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
                   {selectedStudent.status || 'Boarding'}
                 </div>
+                <p className="mt-2 text-xs font-semibold uppercase tracking-[0.16em] text-indigo-600">
+                  {selectedStudent.preferred_route || 'Parent Pick-Up'}
+                </p>
               </div>
 
               <div className="space-y-5">
@@ -653,31 +703,72 @@ function Students() {
                     <p className="text-slate-500">Status</p>
                     <p className="mt-1 font-semibold text-slate-900">{selectedStudent.status || 'Boarding'}</p>
                   </div>
+                  <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
+                    <p className="text-slate-500">Transport Destination</p>
+                    <p className="mt-1 font-semibold text-slate-900">{selectedStudent.preferred_route || 'Parent Pick-Up'}</p>
+                  </div>
                 </div>
+
+                {(() => {
+                  const conduit = selectedStudent.conduit;
+                  if (!conduit) return null;
+                  const score = conduit.conduit_points;
+                  const base = conduit.base_points;
+                  const pct = conduit.percent ?? (base ? Math.round((score / base) * 100) : 0);
+                  const meterColor = pct >= 75 ? 'bg-emerald-500' : pct >= 40 ? 'bg-amber-500' : 'bg-rose-500';
+                  return (
+                    <div className="rounded-2xl border border-indigo-200 bg-white p-4">
+                      <div className="mb-2 flex items-center justify-between">
+                        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-indigo-600">Conduit Points</p>
+                        <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">{score} / {base}</span>
+                      </div>
+                      <div className="h-3 w-full overflow-hidden rounded-full bg-slate-100">
+                        <div className={`h-full rounded-full transition-all duration-500 ${meterColor}`} style={{ width: `${pct}%` }} />
+                      </div>
+                      <p className="mt-2 text-xs text-slate-500">Real-time conduct balance for this term. Demerits deduct; merits restore up to the {base}-point maximum.</p>
+                    </div>
+                  );
+                })()}
 
                 <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
                   <div className="mb-3 flex items-center justify-between">
                     <p className="text-sm font-semibold uppercase tracking-[0.18em] text-indigo-600">Discipline summary</p>
-                    <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-indigo-700">Overall 82%</span>
+                    <span className="rounded-full bg-white px-2.5 py-1 text-xs font-semibold text-indigo-700">
+                      {selectedStudent.conduit
+                        ? `${selectedStudent.conduit.percent}% Conduit`
+                        : 'Conduit —' }
+                    </span>
                   </div>
                   <div className="grid gap-3 md:grid-cols-3">
                     <div className="rounded-xl bg-white p-3">
                       <p className="text-xs text-slate-500">Merit score</p>
-                      <p className="mt-2 text-2xl font-bold text-emerald-600">24</p>
+                      <p className="mt-2 text-2xl font-bold text-emerald-600">
+                        {selectedStudent.conduit?.merits ?? '—'}
+                      </p>
                     </div>
                     <div className="rounded-xl bg-white p-3">
                       <p className="text-xs text-slate-500">Demerit score</p>
-                      <p className="mt-2 text-2xl font-bold text-amber-600">6</p>
+                      <p className="mt-2 text-2xl font-bold text-amber-600">
+                        {selectedStudent.conduit?.demerits ?? '—'}
+                      </p>
                     </div>
                     <div className="rounded-xl bg-white p-3">
-                      <p className="text-xs text-slate-500">Active permissions</p>
-                      <p className="mt-2 text-2xl font-bold text-sky-600">1</p>
+                      <p className="text-xs text-slate-500">Conduit points</p>
+                      <p className="mt-2 text-2xl font-bold text-indigo-600">
+                        {selectedStudent.conduit
+                          ? `${selectedStudent.conduit.conduit_points}/${selectedStudent.conduit.base_points}`
+                          : '—'}
+                      </p>
                     </div>
                   </div>
                   <div className="mt-4 space-y-2">
                     <div className="rounded-xl bg-white p-3">
                       <p className="text-xs font-medium uppercase tracking-[0.18em] text-slate-500">Incident history</p>
-                      <p className="mt-2 text-sm text-slate-700">2 resolved incidents · 1 warning issued this term</p>
+                      <p className="mt-2 text-sm text-slate-700">
+                        {selectedStudent.conduit?.incidents
+                          ? `${selectedStudent.conduit.incidents} incident(s) recorded this term`
+                          : 'No incidents recorded this term'}
+                      </p>
                     </div>
                   </div>
                 </div>

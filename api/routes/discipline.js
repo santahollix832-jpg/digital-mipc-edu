@@ -201,29 +201,95 @@ router.patch('/incidents/:id/review', async (req, res) => {
   const recordStatus = decision === 'approve' ? 'In Progress' : 'Resolved';
 
   try {
-    const result = await pool.query(
-      `UPDATE discipline_incidents
-       SET approval_status = $1,
-           status = $2,
-           reviewed_by = $3,
-           reviewed_at = CURRENT_TIMESTAMP,
-           review_notes = NULLIF($4, '')
-       WHERE id = $5 AND approval_status = 'pending'
-       RETURNING *;`,
-      [approvalStatus, recordStatus, req.user.full_name, reviewNotes, incidentId]
-    );
+    const client = await pool.connect();
+    let deductionResult = null;
+    try {
+      await client.query('BEGIN');
+      const result = await client.query(
+        `UPDATE discipline_incidents
+         SET approval_status = $1,
+             status = $2,
+             reviewed_by = $3,
+             reviewed_at = CURRENT_TIMESTAMP,
+             review_notes = NULLIF($4, '')
+         WHERE id = $5 AND approval_status = 'pending'
+         RETURNING *;`,
+        [approvalStatus, recordStatus, req.user.full_name, reviewNotes, incidentId]
+      );
 
-    if (!result.rowCount) {
-      return res.status(404).json({ success: false, message: 'Pending incident not found (it may already have been reviewed).' });
+      if (!result.rowCount) {
+        await client.query('ROLLBACK');
+        return res.status(404).json({ success: false, message: 'Pending incident not found (it may already have been reviewed).' });
+      }
+
+      const incident = result.rows[0];
+
+      // Conduit System: on approval, deduct the rule-configured points automatically.
+      if (decision === 'approve') {
+        let deductPoints = null;
+        const ruleSettings = await client.query(
+          "SELECT setting_key, setting_value FROM discipline_settings WHERE setting_key IN ('demerit_default_points', 'rule_point_deductions', 'conduit_base_points');"
+        );
+        const settingsMap = {};
+        for (const row of ruleSettings.rows) {
+          try { settingsMap[row.setting_key] = JSON.parse(row.setting_value); } catch { settingsMap[row.setting_key] = row.setting_value; }
+        }
+        const ruleMap = settingsMap.rule_point_deductions && typeof settingsMap.rule_point_deductions === 'object'
+          ? settingsMap.rule_point_deductions
+          : {};
+        const configured = Number(ruleMap[incident.incident_type]);
+        if (Number.isFinite(configured) && configured > 0) {
+          deductPoints = Math.round(configured);
+        } else {
+          const fallback = Number(settingsMap.demerit_default_points);
+          deductPoints = Number.isFinite(fallback) && fallback > 0 ? Math.round(fallback) : 5;
+        }
+        const basePoints = Number(settingsMap.conduit_base_points);
+        const base = Number.isFinite(basePoints) && basePoints > 0 ? Math.round(basePoints) : 40;
+
+        // Clamp the deduction so the Conduit score never drops below zero.
+        const balance = await client.query(
+          `SELECT COALESCE(SUM(CASE WHEN entry_type = 'merit' THEN points ELSE -points END), 0)::INT AS net
+           FROM merit_demerit_entries WHERE student_id = $1;`,
+          [incident.student_id]
+        );
+        const net = balance.rows[0]?.net ?? 0;
+        const clamped = Math.max(0, Math.min(deductPoints, base + net));
+        if (clamped > 0) {
+          const deduction = await client.query(
+            `INSERT INTO merit_demerit_entries (student_id, entry_type, points, reason, awarded_by, incident_id)
+             VALUES ($1, 'demerit', $2, $3, $4, $5)
+             RETURNING *;`,
+            [
+              incident.student_id,
+              clamped,
+              `Rule-linked deduction for approved incident: ${incident.incident_type} (${incident.severity}).`,
+              `Auto — approved by ${req.user.full_name}`,
+              incident.id,
+            ]
+          );
+          deductionResult = deduction.rows[0];
+        }
+      }
+
+      await client.query('COMMIT');
+
+      res.json({
+        success: true,
+        message: decision === 'approve'
+          ? deductionResult
+            ? `Incident approved — ${deductionResult.points} Conduit point(s) automatically deducted from the student's 40-point base.`
+            : 'Incident approved and added to the student record.'
+          : 'Incident rejected.',
+        data: result.rows[0],
+        point_deduction: deductionResult,
+      });
+    } catch (txError) {
+      await client.query('ROLLBACK').catch(() => {});
+      throw txError;
+    } finally {
+      client.release();
     }
-
-    res.json({
-      success: true,
-      message: decision === 'approve'
-        ? 'Incident approved and added to the student record.'
-        : 'Incident rejected.',
-      data: result.rows[0],
-    });
   } catch (err) {
     console.error('[PATCH /incidents/:id/review]', err.message);
     res.status(500).json({ success: false, message: 'Internal server error', error: err.message });

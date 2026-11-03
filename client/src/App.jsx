@@ -10,6 +10,7 @@ import Students from './components/Students';
 import Attendance from './components/Attendance';
 import Sidebar from './components/Sidebar';
 import GateReturnTracking from './components/GateReturnTracking';
+import TransportTracking from './components/TransportTracking';
 import SmartBell from './components/SmartBell';
 import { ToastProvider } from './components/ToastProvider';
 
@@ -211,6 +212,11 @@ function AuthenticatedApp() {
             <Route path="/gate/*" element={
               <ProtectedRoute roles={['SECURITY', 'ADMIN']}>
                 <GateReturnTracking />
+              </ProtectedRoute>
+            } />
+            <Route path="/transport/*" element={
+              <ProtectedRoute roles={['ADMIN', 'PATRON', 'MATRON', 'DOD', 'SECURITY']}>
+                <TransportTracking />
               </ProtectedRoute>
             } />
             <Route path="/smart-bell/*" element={

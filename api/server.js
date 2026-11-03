@@ -7,6 +7,7 @@ const permissionsRouter = require('./routes/permissions');
 const feesRouter = require('./routes/fees');
 const staffRouter = require('./routes/staff');
 const disciplineRouter = require('./routes/discipline');
+const conduitRouter = require('./routes/conduit');
 const attendanceRouter = require('./routes/attendance');
 const transportRouter = require('./routes/transport');
 const bellRouter = require('./routes/bell');
@@ -90,6 +91,7 @@ async function ensureDatabaseSchema() {
   await pool.query("ALTER TABLE students ADD COLUMN IF NOT EXISTS photo_url VARCHAR(255) DEFAULT 'default.png';");
   await pool.query('ALTER TABLE students ADD COLUMN IF NOT EXISTS guardian_email VARCHAR(254);');
   await pool.query('ALTER TABLE students ADD COLUMN IF NOT EXISTS guardian_phone VARCHAR(30);');
+  await pool.query('ALTER TABLE students ADD COLUMN IF NOT EXISTS guardian_name VARCHAR(255);');
   await pool.query("ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'present';");
   await pool.query('ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS device_id VARCHAR(50);');
   await pool.query('ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS check_out_time TIMESTAMP;');
@@ -218,6 +220,59 @@ async function ensureDatabaseSchema() {
     VALUES ('gate_overdue_demerit_points', '"5"', 'system-default')
     ON CONFLICT (setting_key) DO NOTHING;
   `);
+  await pool.query(`
+    INSERT INTO discipline_settings (setting_key, setting_value, updated_by)
+    VALUES ('conduit_base_points', '"40"', 'system-default')
+    ON CONFLICT (setting_key) DO NOTHING;
+  `);
+
+  // Preferred route / destination on student profiles (Musanze hub transport)
+  await pool.query(`
+    ALTER TABLE students
+    ADD COLUMN IF NOT EXISTS preferred_route VARCHAR(80) NOT NULL DEFAULT 'Parent Pick-Up';
+  `);
+
+  // Transport ticketing & boarding manifest (end-of-term departure)
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS transport_tickets (
+      id SERIAL PRIMARY KEY,
+      student_id INT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      route VARCHAR(80) NOT NULL,
+      payment_status VARCHAR(20) NOT NULL DEFAULT 'Unpaid'
+        CHECK (payment_status IN ('Fully Paid', 'Partial Payment', 'Unpaid')),
+      amount_paid NUMERIC(12,2) NOT NULL DEFAULT 0,
+      paid_at TIMESTAMP,
+      updated_by VARCHAR(255) NOT NULL DEFAULT '',
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_transport_tickets_student ON transport_tickets (student_id);');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS transport_boarding (
+      id SERIAL PRIMARY KEY,
+      student_id INT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      route VARCHAR(80) NOT NULL,
+      boarded BOOLEAN NOT NULL DEFAULT FALSE,
+      boarded_at TIMESTAMP,
+      boarded_by VARCHAR(255) NOT NULL DEFAULT '',
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_transport_boarding_student ON transport_boarding (student_id);');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS parent_pickup_register (
+      id SERIAL PRIMARY KEY,
+      student_id INT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      parent_name VARCHAR(255) NOT NULL DEFAULT '',
+      parent_phone VARCHAR(40) NOT NULL DEFAULT '',
+      expected_pickup_at TIMESTAMP,
+      picked_up BOOLEAN NOT NULL DEFAULT FALSE,
+      picked_up_at TIMESTAMP,
+      updated_by VARCHAR(255) NOT NULL DEFAULT '',
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_parent_pickup_student ON parent_pickup_register (student_id);');
 
   // Transport Tracking & IoT Smart Bell modules
   await pool.query(`
@@ -331,11 +386,15 @@ app.use('/api/discipline', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD'), dis
 const disciplineModulesRouter = require('./routes/disciplineModules');
 app.use('/api/discipline', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD'), disciplineModulesRouter);
 
+// Conduit System (conduct points) — meters, merit/demerit ledger, rule-linked deductions config
+app.use('/api/discipline', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD'), conduitRouter);
+
 // Connect attendance module route
 app.use('/api/attendance', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD'), attendanceRouter);
 
-// School buses remain for ADMIN only (Security no longer tracks transport).
-app.use('/api/transport', requireRoles('ADMIN'), transportRouter);
+// Musanze Hub transport logistics: ADMIN manages; PATRON/MATRON/DOD view manifests & parent pick-up;
+// SECURITY performs the boarding call-up check-off.
+app.use('/api/transport', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD', 'SECURITY'), transportRouter);
 
 // Connect IoT smart bell module route
 app.use('/api/bell', requireRoles('ADMIN'), bellRouter);
@@ -347,6 +406,7 @@ app.get('/api/students', async (req, res, next) => {
   try {
     const result = await pool.query(
       `SELECT id, name, reg_number, class AS class_name, gender, photo_url, guardian_email, guardian_phone,
+              preferred_route,
               COALESCE(status, 'Active') AS status
        FROM students ORDER BY id DESC;`
     );
@@ -372,10 +432,10 @@ app.post('/api/students/register', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DO
     }
 
     const result = await pool.query(
-      `INSERT INTO students (name, reg_number, class, gender, photo_url, status, guardian_email, guardian_phone)
-       VALUES ($1, $2, $3, $4, $5, COALESCE(NULLIF($6, ''), 'Active'), $7, $8)
-       RETURNING id, name, reg_number, class AS class_name, gender, photo_url, status, guardian_email, guardian_phone;`,
-      [finalName, finalRegNumber, finalClass, gender, photo_url, req.body.status || 'Active', guardianEmail, guardianPhone]
+      `INSERT INTO students (name, reg_number, class, gender, photo_url, status, guardian_email, guardian_phone, preferred_route)
+      VALUES ($1, $2, $3, $4, $5, COALESCE(NULLIF($6, ''), 'Active'), $7, $8, $9)
+      RETURNING id, name, reg_number, class AS class_name, gender, photo_url, status, guardian_email, guardian_phone, preferred_route;`,
+      [finalName, finalRegNumber, finalClass, gender, photo_url, req.body.status || 'Active', guardianEmail, guardianPhone, req.body.preferred_route || 'Parent Pick-Up']
     );
     res.status(201).json({ success: true, student: result.rows[0] });
   } catch (err) {
@@ -408,20 +468,22 @@ app.put('/api/students/:id', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD'), u
            status = COALESCE(NULLIF($5, ''), status),
            photo_url = COALESCE($6, photo_url),
            guardian_email = CASE WHEN $7 THEN $8 ELSE guardian_email END,
-           guardian_phone = CASE WHEN $9 THEN $10 ELSE guardian_phone END
-       WHERE id = $11
-       RETURNING id, name, reg_number, class AS class_name, gender, photo_url, status, guardian_email, guardian_phone;`,
+           guardian_phone = CASE WHEN $9 THEN $10 ELSE guardian_phone END,
+           preferred_route = COALESCE(NULLIF($11, ''), preferred_route)
+       WHERE id = $12
+       RETURNING id, name, reg_number, class AS class_name, gender, photo_url, status, guardian_email, guardian_phone, preferred_route;`,
       [
-        finalName,
-        finalRegNumber,
-        finalClass,
-        gender,
-        status || null,
-        nextPhotoUrl,
-        guardian_email !== undefined,
-        guardianEmail,
-        guardian_phone !== undefined,
-        guardianPhone,
+       finalName,
+       finalRegNumber,
+       finalClass,
+       gender,
+       status || null,
+       nextPhotoUrl,
+       guardian_email !== undefined,
+       guardianEmail,
+       guardian_phone !== undefined,
+       guardianPhone,
+       req.body.preferred_route || '',
         id,
       ]
     );

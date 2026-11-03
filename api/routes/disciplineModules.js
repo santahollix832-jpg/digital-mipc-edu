@@ -174,7 +174,18 @@ router.post('/points', async (req, res) => {
        RETURNING *;`,
       [studentId, entryType, points, reason, awardedBy, parseStudentId(body.incident_id ?? body.incidentId)]
     );
-    res.status(201).json({ success: true, message: `${entryType === 'merit' ? 'Merit' : 'Demerit'} recorded.`, data: result.rows[0] });
+    const conduit = await pool.query(
+      `SELECT LEAST(GREATEST($2 + COALESCE(SUM(CASE WHEN entry_type = 'merit' THEN points ELSE -points END), 0), 0), $2)::INT AS conduit_points
+       FROM merit_demerit_entries WHERE student_id = $1;`,
+      [studentId, await getConduitBasePoints()]
+    );
+    res.status(201).json({
+      success: true,
+      message: `${entryType === 'merit' ? 'Merit' : 'Demerit'} recorded.`,
+      data: result.rows[0],
+      base_points: await getConduitBasePoints(),
+      conduit_points: conduit.rows[0]?.conduit_points,
+    });
   } catch (err) {
     console.error('[POST /discipline/points]', err.message);
     res.status(500).json({ success: false, message: 'Database insertion failed', error: err.message });
@@ -223,9 +234,9 @@ router.post('/scan', async (req, res) => {
       [s.id]
     );
     const pointsRow = await pool.query(
-      `SELECT COALESCE(SUM(CASE WHEN entry_type = 'merit' THEN points ELSE -points END), 0)::INT AS balance
+      `SELECT LEAST(GREATEST($2 + COALESCE(SUM(CASE WHEN entry_type = 'merit' THEN points ELSE -points END), 0), 0), $2)::INT AS balance
        FROM merit_demerit_entries WHERE student_id = $1;`,
-      [s.id]
+      [s.id, await getConduitBasePoints()]
     );
 
     const log = await pool.query(
@@ -242,7 +253,7 @@ router.post('/scan', async (req, res) => {
       gate,
       scan_type: scanType,
       scanned_at: log.rows[0].scanned_at,
-      point_balance: pointsRow.rows[0]?.balance ?? 0,
+      point_balance: pointsRow.rows[0]?.balance ?? await getConduitBasePoints(),
       recent_incidents: openDiscipline.rows,
       open_actions: openActions.rows,
     });
