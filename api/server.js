@@ -198,6 +198,27 @@ async function ensureDatabaseSchema() {
   await pool.query('CREATE INDEX IF NOT EXISTS idx_merit_demerit_student ON merit_demerit_entries (student_id);');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_gate_scans_student ON gate_scans (student_id);');
 
+  // Security gate return tracking — formal overdue/late-return infraction reports
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS gate_overdue_reports (
+      id SERIAL PRIMARY KEY,
+      permission_id INT REFERENCES permissions(id) ON DELETE SET NULL,
+      student_id INT NOT NULL REFERENCES students(id) ON DELETE CASCADE,
+      overdue_seconds INT NOT NULL DEFAULT 0,
+      overdue_minutes INT NOT NULL DEFAULT 0,
+      points_deducted INT NOT NULL DEFAULT 0,
+      report_recipients TEXT NOT NULL DEFAULT '["ADMIN","DOD","PATRON","MATRON"]',
+      created_by VARCHAR(255) NOT NULL DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_gate_overdue_reports_student ON gate_overdue_reports (student_id);');
+  await pool.query(`
+    INSERT INTO discipline_settings (setting_key, setting_value, updated_by)
+    VALUES ('gate_overdue_demerit_points', '"5"', 'system-default')
+    ON CONFLICT (setting_key) DO NOTHING;
+  `);
+
   // Transport Tracking & IoT Smart Bell modules
   await pool.query(`
     CREATE TABLE IF NOT EXISTS buses (
@@ -293,8 +314,9 @@ app.use('/api', (req, res, next) => {
 });
 app.use('/api', authenticateRequest);
 
-// Each management module applies its role policy to every endpoint.
-app.use('/api/permissions', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD'), permissionsRouter);
+// Permissions: ADMIN/PATRON/MATRON/DOD manage permissions; SECURITY gets read-only
+// gate access (view active leaves, record returns, report overdue students).
+app.use('/api/permissions', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD', 'SECURITY'), permissionsRouter);
 
 // Connect school fees module route
 app.use('/api/fees', requireRoles('ADMIN', 'BURSAR'), feesRouter);
@@ -312,8 +334,8 @@ app.use('/api/discipline', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD'), dis
 // Connect attendance module route
 app.use('/api/attendance', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD'), attendanceRouter);
 
-// Connect transport tracking module route
-app.use('/api/transport', requireRoles('ADMIN', 'SECURITY'), transportRouter);
+// School buses remain for ADMIN only (Security no longer tracks transport).
+app.use('/api/transport', requireRoles('ADMIN'), transportRouter);
 
 // Connect IoT smart bell module route
 app.use('/api/bell', requireRoles('ADMIN'), bellRouter);

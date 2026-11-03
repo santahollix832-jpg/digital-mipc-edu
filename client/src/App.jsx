@@ -9,7 +9,7 @@ import Permissions from './components/Permissions';
 import Students from './components/Students';
 import Attendance from './components/Attendance';
 import Sidebar from './components/Sidebar';
-import TransportTracking from './components/TransportTracking';
+import GateReturnTracking from './components/GateReturnTracking';
 import SmartBell from './components/SmartBell';
 import { ToastProvider } from './components/ToastProvider';
 
@@ -18,7 +18,7 @@ const roleLandingPage = {
   PATRON: '/students',
   MATRON: '/students',
   DOD: '/discipline',
-  SECURITY: '/transport',
+  SECURITY: '/gate',
   BURSAR: '/students',
   TEACHER: '/students',
 };
@@ -208,9 +208,9 @@ function AuthenticatedApp() {
                 <Attendance />
               </ProtectedRoute>
             } />
-                        <Route path="/transport/*" element={
-              <ProtectedRoute roles={['ADMIN', 'SECURITY']}>
-                <TransportTracking />
+            <Route path="/gate/*" element={
+              <ProtectedRoute roles={['SECURITY', 'ADMIN']}>
+                <GateReturnTracking />
               </ProtectedRoute>
             } />
             <Route path="/smart-bell/*" element={

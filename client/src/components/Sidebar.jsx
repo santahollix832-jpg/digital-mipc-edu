@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { BookOpenCheck, Bus, CalendarCheck2, ChevronLeft, ChevronRight, LogOut, ShieldAlert, Users, X } from 'lucide-react';
+import { BookOpenCheck, CalendarCheck2, ChevronLeft, ChevronRight, LogOut, ShieldAlert, Users, X } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 
 const menuItems = [
@@ -8,7 +8,7 @@ const menuItems = [
   { label: 'Attendance', to: '/attendance', icon: CalendarCheck2, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD'] },
   { label: 'Permissions', to: '/permissions', icon: BookOpenCheck, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD'] },
   { label: 'Discipline', to: '/discipline', icon: ShieldAlert, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD'] },
-  { label: 'Transport Tracking', to: '/transport', icon: Bus, roles: ['ADMIN', 'SECURITY'] },
+  { label: 'Gate Return Tracking', to: '/gate', icon: ShieldAlert, roles: ['SECURITY'] },
 ];
 
 function Sidebar({ user, isOpen, onClose }) {
