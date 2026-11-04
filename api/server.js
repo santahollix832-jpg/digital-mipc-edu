@@ -12,6 +12,7 @@ const attendanceRouter = require('./routes/attendance');
 const transportRouter = require('./routes/transport');
 const bellRouter = require('./routes/bell');
 const authRouter = require('./routes/auth');
+const usersRouter = require('./routes/users');
 const pool = require('./config/database');
 const { authenticateRequest, requireRoles } = require('./middleware/auth');
 const requireTrustedOrigin = require('./middleware/trusted-origin');
@@ -378,6 +379,14 @@ app.use('/api/fees', requireRoles('ADMIN', 'BURSAR'), feesRouter);
 
 // Connect staff management module route
 app.use('/api/staff', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD'), staffRouter);
+
+// User role management: full CRUD on staff accounts, ADMIN-only.
+// GET /api/users          → list accounts (id, full_name, username, role, is_active, created_at)
+// POST /api/users         → create account
+// PUT /api/users/:id      → update name / role / password
+// PATCH /api/users/:id/status → activate / deactivate (revokes sessions)
+// DELETE /api/users/:id   → permanent account deletion (self-delete + last-admin guarded)
+app.use('/api/users', usersRouter);
 
 // Connect discipline module route
 // Discipline: PATRON/MATRON can report incidents; DOD/ADMIN manage the approval workflow.

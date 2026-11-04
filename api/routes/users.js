@@ -6,11 +6,22 @@ const { authenticateRequest, requireRoles } = require('../middleware/auth');
 const router = express.Router();
 const ALLOWED_ROLES = ['ADMIN', 'PATRON', 'MATRON', 'DOD', 'BURSAR', 'TEACHER', 'SECURITY'];
 
+// Effective module permissions per role — surfaced to the admin role-management UI.
+const ROLE_PERMISSIONS = {
+  ADMIN: ['users', 'students', 'attendance', 'permissions', 'discipline', 'transport', 'gate', 'settings', 'smart-bell', 'fees'],
+  PATRON: ['students', 'attendance', 'permissions', 'discipline', 'transport', 'settings'],
+  MATRON: ['students', 'attendance', 'permissions', 'discipline', 'transport', 'settings'],
+  DOD: ['students', 'attendance', 'permissions', 'discipline', 'transport', 'settings'],
+  TEACHER: ['attendance', 'students', 'smart-bell', 'settings'],
+  SECURITY: ['gate', 'transport', 'permissions', 'smart-bell', 'settings'],
+  BURSAR: ['fees', 'students'],
+};
+
 router.use(authenticateRequest, requireRoles('ADMIN'));
 
 /**
  * GET /api/users
- * List every system user (no password hashes).
+ * List every system user (no password hashes) with their effective role permissions.
  */
 router.get('/', async (req, res) => {
   try {
@@ -19,7 +30,11 @@ router.get('/', async (req, res) => {
        FROM users
        ORDER BY created_at DESC, id DESC`
     );
-    return res.json({ success: true, users: result.rows });
+    const users = result.rows.map((row) => ({
+      ...row,
+      permissions: ROLE_PERMISSIONS[row.role] || [],
+    }));
+    return res.json({ success: true, users });
   } catch (err) {
     console.error('[USERS_LIST_ERROR]', err);
     return res.status(500).json({ success: false, error: 'Unable to load user accounts.' });

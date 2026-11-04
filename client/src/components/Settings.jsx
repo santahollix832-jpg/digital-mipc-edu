@@ -6,7 +6,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
-import { AUTH_API_BASE_URL, API_CLIENT_CONFIG, apiFetch, safeJsonResponse } from '../api/config';
+import { AUTH_API_BASE_URL, API_CLIENT_CONFIG, API_BASE_URL, apiFetch, safeJsonResponse } from '../api/config';
 
 /* ----------------------------- Shared building blocks ----------------------------- */
 
@@ -489,12 +489,20 @@ function UserRoleManagement() {
   async function loadUsers(quiet = false) {
     if (!quiet) setLoading(true);
     try {
+      // Exact backend endpoint: GET ${API_BASE_URL}/users (credentials included by apiFetch).
       const response = await apiFetch('/users');
-      const payload = await response.json().catch(() => ({}));
+      if (response.status === 404) {
+        throw new Error('Staff accounts endpoint not found — the backend users route is unavailable.');
+      }
+      if (response.status === 403) {
+        throw new Error('Administrator access is required to manage staff accounts.');
+      }
+      const payload = await safeJsonResponse(response) || {};
       if (!response.ok || payload.success === false) {
         throw new Error(payload.error || `Failed to load accounts (${response.status}).`);
       }
-      setUsers(Array.isArray(payload.users) ? payload.users : []);
+      const list = Array.isArray(payload.users) ? payload.users : Array.isArray(payload) ? payload : [];
+      setUsers(list);
       setError('');
     } catch (err) {
       console.error('User role load failed:', err);
@@ -640,6 +648,11 @@ function UserRoleManagement() {
                     </span>
                     {!account.is_active && (
                       <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">INACTIVE</span>
+                    )}
+                    {(account.permissions || []).length > 0 && (
+                      <span className="text-[10px] font-medium text-slate-400">
+                        {(account.permissions || []).length} module{(account.permissions || []).length === 1 ? '' : 's'}
+                      </span>
                     )}
                   </div>
                 </div>
