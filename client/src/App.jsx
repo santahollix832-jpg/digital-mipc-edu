@@ -16,6 +16,7 @@ import Settings from './components/Settings';
 import RoleDashboard from './components/RoleDashboard';
 import { ThemeProvider } from './theme/ThemeContext';
 import { ToastProvider } from './components/ToastProvider';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const roleLandingPage = {
   ADMIN: '/dashboard',
@@ -179,6 +180,7 @@ function AuthenticatedApp() {
 
   return (
     <div className="app-shell min-h-screen text-white">
+      <ErrorBoundary>
       <div className="md:hidden">
         <div className="wp-glass flex items-center justify-between border-b px-4 py-3 shadow-sm">
           <div className="flex items-center gap-2">
@@ -252,6 +254,7 @@ function AuthenticatedApp() {
           </Routes>
         </div>
       </div>
+      </ErrorBoundary>
     </div>
   );
 }

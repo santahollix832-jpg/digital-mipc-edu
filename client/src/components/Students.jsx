@@ -15,10 +15,10 @@ const TRANSPORT_ROUTES = ['Kigali', 'Rubavu', 'Huye', 'Muhanga', 'Parent Pick-Up
  */
 function buildStudentQrPayload(student) {
   return JSON.stringify({
-    reg_number: student.reg_number || '',
-    id: student.id,
-    full_name: student.name || '',
-    class: student.class_name || '',
+    reg_number: student?.reg_number || '',
+    id: student?.id ?? null,
+    full_name: student?.name || '',
+    class: student?.class_name || '',
   });
 }
 const emptyForm = {
@@ -44,13 +44,37 @@ function QrBadgeCard({ student }) {
   const badgeRef = useRef(null);
   const payload = buildStudentQrPayload(student);
 
-  function downloadQr() {
-    const canvas = badgeRef.current?.querySelector('canvas');
+  function svgToPngDataUrl(svg) {
+    const xml = new XMLSerializer().serializeToString(svg);
+    const svgUrl = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(xml)))}`;
+    return new Promise((resolve, reject) => {
+      const img = new Image();
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = 320;
+          canvas.height = 320;
+          const ctx = canvas.getContext('2d');
+          ctx.fillStyle = '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          resolve(canvas.toDataURL('image/png'));
+        } catch (error) {
+          reject(error);
+        }
+      };
+      img.onerror = () => reject(new Error('Failed to rasterize QR SVG'));
+      img.src = svgUrl;
+    });
+  }
+
+  async function downloadQr() {
     const svg = badgeRef.current?.querySelector('svg');
+    if (!svg) return;
     let dataUrl = '';
-    if (canvas) {
-      dataUrl = canvas.toDataURL('image/png');
-    } else if (svg) {
+    try {
+      dataUrl = await svgToPngDataUrl(svg);
+    } catch {
       const xml = new XMLSerializer().serializeToString(svg);
       dataUrl = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(xml)))}`;
     }
@@ -70,7 +94,7 @@ function QrBadgeCard({ student }) {
         <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-indigo-600">Digital MIPC EDU</p>
         <p className="mt-0.5 text-xs font-semibold text-slate-400">Student Identification</p>
         <div className="mt-3 flex justify-center [&_svg]:h-40 [&_svg]:w-40">
-          <QRCodeSVG value={payload} size={160} level="M" includeMargin />
+          <QRCodeSVG value={payload || 'mipc-student'} size={160} level="M" marginSize={2} />
         </div>
         <h3 className="mt-3 text-base font-extrabold text-slate-900">{student.name}</h3>
         <p className="mt-0.5 font-mono text-sm font-bold text-indigo-700">{student.reg_number}</p>
@@ -96,12 +120,7 @@ function QrBadgeCard({ student }) {
               .kicker{font-size:10px;letter-spacing:3px;color:#4f46e5;font-weight:800;text-transform:uppercase;}
               .name{font-size:18px;font-weight:800;color:#0f172a;margin:10px 0 2px;} .reg{font-family:monospace;font-weight:700;color:#4338ca;}
               .cls{color:#64748b;font-size:12px;}</style></head>
-              <body><div class="badge" id="b"></div>
-              <script>
-                const svgData = ${JSON.stringify(new XMLSerializer !== 'undefined' ? '' : '')};
-                document.currentScript.remove();
-              </script>
-              </body></html>`
+              <body><div class="badge" id="b"></div></body></html>`
             );
             printWindow.document.close();
             // Render the QR inside the print window via a data URL snapshot.
