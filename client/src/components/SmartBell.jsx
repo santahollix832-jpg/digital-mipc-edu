@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle, Bell, Clock, Cpu, Loader2, Pencil, Play, Plus,
-  Power, RefreshCw, Trash2, Wifi, WifiOff, X,
+  AlertTriangle, Bell, BellRing, Clock, Cpu, Loader2, Pencil, Play, Plus,
+  Power, RefreshCw, Siren, Trash2, Wifi, WifiOff, X,
 } from 'lucide-react';
 import { API_BASE_URL } from '../api/config';
+import { useAuth } from '../auth/AuthContext';
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const DAY_LABELS = { Mon: 'Monday', Tue: 'Tuesday', Wed: 'Wednesday', Thu: 'Thursday', Fri: 'Friday', Sat: 'Saturday', Sun: 'Sunday' };
@@ -40,6 +41,8 @@ function relativeTime(timestamp) {
 }
 
 const SmartBell = () => {
+  const { user } = useAuth();
+  const isAdmin = String(user?.role || '').toUpperCase() === 'ADMIN';
   const [schedules, setSchedules] = useState([]);
   const [logs, setLogs] = useState([]);
   const [device, setDevice] = useState(null);
@@ -195,6 +198,30 @@ const SmartBell = () => {
     }
   };
 
+  const handleSosAlert = async () => {
+    setBusyPreset('sos');
+    try {
+      const res = await fetch(`${API_BASE_URL}/bell/trigger`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          preset: 'emergency',
+          note: `EMERGENCY / INCIDENT ALERT raised by ${user?.full_name || user?.role || 'staff'}`,
+          duration_seconds: 60,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to raise the emergency alert.');
+      showToast('CAMPUS-WIDE EMERGENCY ALERT SOUNDED.', data.hardware_acknowledged === false ? 'warning' : 'success');
+      await fetchData(true);
+    } catch (err) {
+      showToast(err.message, 'error');
+    } finally {
+      setBusyPreset(null);
+    }
+  };
+
   const isOnline = !!(device && device.is_online);
   const uptimeLabel = useMemo(() => {
     if (!device || !device.uptime_seconds) return 'Unknown';
@@ -230,8 +257,36 @@ const SmartBell = () => {
       )}
 
       <div className="grid gap-6 lg:grid-cols-3">
-        {/* ============ Bell Schedule Manager ============ */}
-        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-2">
+        {/* ============ Emergency SOS (non-admin roles) ============ */}
+        {!isAdmin && (
+          <section className="rounded-2xl border-4 border-rose-500 bg-rose-50 p-6 shadow-lg shadow-rose-500/20 lg:col-span-3">
+            <div className="mb-4 flex flex-wrap items-center gap-3">
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-600 text-white shadow-lg shadow-rose-600/40">
+                <Siren size={30} />
+              </div>
+              <div>
+                <h2 className="text-xl font-extrabold uppercase tracking-wide text-rose-700">Emergency Bell · Incident Alert</h2>
+                <p className="text-sm font-semibold text-rose-600">
+                  One click sounds the campus-wide emergency siren. Schedule configuration is restricted to administrators.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleSosAlert}
+              disabled={busyPreset !== null}
+              className={`flex w-full items-center justify-center gap-3 rounded-2xl bg-rose-600 px-6 py-10 text-2xl font-extrabold uppercase tracking-widest text-white shadow-xl shadow-rose-600/40 transition hover:bg-rose-700 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 ${busyPreset === 'sos' ? 'animate-pulse' : ''}`}
+            >
+              {busyPreset === 'sos' ? <Loader2 size={34} className="animate-spin" /> : <Siren size={34} />}
+              {busyPreset === 'sos' ? 'Sounding alert…' : 'SOS — Sound Emergency Bell'}
+            </button>
+            <p className="mt-4 flex items-center justify-center gap-1.5 text-center text-xs font-semibold text-rose-500">
+              <Power size={13} /> 60-second campus-wide siren{isOnline ? ' · bell device online' : ' · bell device currently offline, alert will be queued'}.
+            </p>
+          </section>
+        )}
+
+        {/* ============ Bell Schedule Manager (admin only) ============ */}
+        <section className={`rounded-2xl border border-slate-200 bg-white p-6 shadow-sm ${isAdmin ? 'lg:col-span-2' : 'hidden'}`}>
           <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-indigo-50 text-indigo-600">
@@ -244,7 +299,8 @@ const SmartBell = () => {
             </div>
             <button
               onClick={openCreate}
-              className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700"
+              disabled={!isAdmin}
+              className="inline-flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Plus size={16} /> Add Schedule
             </button>
@@ -338,7 +394,7 @@ const SmartBell = () => {
         </section>
 
         {/* ============ Device Status ============ */}
-        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <section className={`rounded-2xl border border-slate-200 bg-white p-6 shadow-sm ${isAdmin ? '' : 'lg:col-span-3'}`}>
           <div className="mb-5 flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-slate-50 text-slate-600">
               <Cpu size={22} />
@@ -386,8 +442,8 @@ const SmartBell = () => {
           </button>
         </section>
 
-        {/* ============ Manual Override ============ */}
-        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm lg:col-span-2">
+        {/* ============ Manual Override (admin full control) ============ */}
+        <section className={`rounded-2xl border border-slate-200 bg-white p-6 shadow-sm ${isAdmin ? 'lg:col-span-2' : 'hidden'}`}>
           <div className="mb-5 flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-rose-50 text-rose-600">
               <Bell size={22} />
@@ -421,8 +477,8 @@ const SmartBell = () => {
         </section>
       </div>
 
-      {/* ============ Schedule Form Modal ============ */}
-      {showForm && (
+      {/* ============ Schedule Form Modal (admin only) ============ */}
+      {showForm && isAdmin && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4" onClick={() => !saving && setShowForm(false)}>
           <form
             onSubmit={handleSave}

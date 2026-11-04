@@ -23,7 +23,6 @@ const roleLandingPage = {
   MATRON: '/dashboard',
   DOD: '/dashboard',
   SECURITY: '/dashboard',
-  BURSAR: '/students',
   TEACHER: '/students',
 };
 
@@ -225,7 +224,7 @@ function AuthenticatedApp() {
               </ProtectedRoute>
             } />
                         <Route path="/attendance/*" element={
-              <ProtectedRoute roles={['ADMIN', 'PATRON', 'MATRON', 'DOD']}>
+              <ProtectedRoute roles={['ADMIN', 'PATRON', 'MATRON', 'DOD', 'TEACHER']}>
                 <Attendance />
               </ProtectedRoute>
             } />
@@ -245,7 +244,7 @@ function AuthenticatedApp() {
               </ProtectedRoute>
             } />
             <Route path="/smart-bell/*" element={
-              <ProtectedRoute roles={['ADMIN']}>
+              <ProtectedRoute roles={['ADMIN', 'TEACHER', 'PATRON', 'MATRON', 'DOD', 'SECURITY']}>
                 <SmartBell />
               </ProtectedRoute>
             } />

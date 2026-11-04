@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
   BookOpenCheck, Bus, CalendarCheck2, ChevronLeft, ChevronRight, LayoutDashboard,
-  LogOut, Settings as SettingsIcon, ShieldAlert, Users, X,
+  LogOut, Settings as SettingsIcon, ShieldAlert, Users, X, BellRing,
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
@@ -10,11 +10,12 @@ import { useTheme } from '../theme/ThemeContext';
 const menuItems = [
   { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD', 'SECURITY'] },
   { label: 'Student Directory', to: '/students', icon: Users, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD'] },
-  { label: 'Attendance', to: '/attendance', icon: CalendarCheck2, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD'] },
+  { label: 'Attendance', to: '/attendance', icon: CalendarCheck2, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD', 'TEACHER'] },
   { label: 'Permissions', to: '/permissions', icon: BookOpenCheck, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD'] },
   { label: 'Discipline', to: '/discipline', icon: ShieldAlert, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD'] },
   { label: 'Transport (Musanze Hub)', to: '/transport', icon: Bus, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD', 'SECURITY'] },
   { label: 'Gate Return Tracking', to: '/gate', icon: ShieldAlert, roles: ['SECURITY', 'ADMIN'] },
+  { label: 'Smart Bell', to: '/smart-bell', icon: BellRing, roles: ['ADMIN', 'TEACHER', 'PATRON', 'MATRON', 'DOD', 'SECURITY'] },
 ];
 
 function SignOutModal({ open, busy, onCancel, onConfirm }) {
