@@ -524,23 +524,23 @@ function Students() {
 
             <form onSubmit={handleSaveStudent} className="grid gap-4 md:grid-cols-2">
               <label className="block">
-                <span className="mb-2 block text-sm font-medium text-slate-700">Student Name</span>
-                <input name="name" value={form.name} onChange={handleFormChange} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-indigo-400 focus:bg-white" />
+                <span className="mb-2 block text-sm font-bold text-slate-900">Student Name</span>
+                <input name="name" value={form.name} onChange={handleFormChange} placeholder="e.g., Aline Uwase" className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-bold text-slate-900 placeholder:font-medium placeholder:text-slate-400 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200" />
               </label>
 
               <label className="block">
-                <span className="mb-2 block text-sm font-medium text-slate-700">Registration Number</span>
-                <input name="reg_number" value={form.reg_number} onChange={handleFormChange} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-indigo-400 focus:bg-white" />
+                <span className="mb-2 block text-sm font-bold text-slate-900">Registration Number</span>
+                <input name="reg_number" value={form.reg_number} onChange={handleFormChange} placeholder="e.g., MIPC-24-0012" className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-bold text-slate-900 placeholder:font-medium placeholder:text-slate-400 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200" />
               </label>
 
               <label className="block">
-                <span className="mb-2 block text-sm font-medium text-slate-700">Class</span>
-                <input name="class_name" value={form.class_name} onChange={handleFormChange} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-indigo-400 focus:bg-white" />
+                <span className="mb-2 block text-sm font-bold text-slate-900">Class</span>
+                <input name="class_name" value={form.class_name} onChange={handleFormChange} placeholder="e.g., L3 Software Development" className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-bold text-slate-900 placeholder:font-medium placeholder:text-slate-400 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200" />
               </label>
 
               <label className="block">
-                <span className="mb-2 block text-sm font-medium text-slate-700">Gender</span>
-                <select name="gender" value={form.gender} onChange={handleFormChange} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-indigo-400 focus:bg-white">
+                <span className="mb-2 block text-sm font-bold text-slate-900">Gender</span>
+                <select name="gender" value={form.gender} onChange={handleFormChange} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-bold text-slate-900 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200">
                   <option value="Female">Female</option>
                   <option value="Male">Male</option>
                   <option value="Other">Other</option>
@@ -548,19 +548,20 @@ function Students() {
               </label>
 
               <label className="block">
-                <span className="mb-2 block text-sm font-medium text-slate-700">Guardian email</span>
+                <span className="mb-2 block text-sm font-bold text-slate-900">Guardian email</span>
                 <input
                   type="email"
                   name="guardian_email"
                   value={form.guardian_email}
                   onChange={handleFormChange}
                   autoComplete="email"
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-indigo-400 focus:bg-white"
+                  placeholder="guardian@example.com"
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-bold text-slate-900 placeholder:font-medium placeholder:text-slate-400 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
                 />
               </label>
 
               <label className="block">
-                <span className="mb-2 block text-sm font-medium text-slate-700">Guardian phone</span>
+                <span className="mb-2 block text-sm font-bold text-slate-900">Guardian phone</span>
                 <input
                   type="tel"
                   name="guardian_phone"
@@ -568,7 +569,7 @@ function Students() {
                   onChange={handleFormChange}
                   autoComplete="tel"
                   placeholder="+250..."
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-indigo-400 focus:bg-white"
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-bold text-slate-900 placeholder:font-medium placeholder:text-slate-400 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
                 />
               </label>
 
@@ -594,7 +595,7 @@ function Students() {
                 </div>
                 <div className="mt-4">
                   <label className="block">
-                    <span className="mb-2 block text-sm font-medium text-slate-700">Photo URL</span>
+                    <span className="mb-2 block text-sm font-bold text-slate-900">Photo URL</span>
                     <input
                       type="url"
                       value={form.photo_url}
@@ -607,20 +608,20 @@ function Students() {
               </div>
 
               <label className="block md:col-span-2">
-                <span className="mb-2 block text-sm font-medium text-slate-700">Status</span>
-                <select name="status" value={form.status} onChange={handleFormChange} className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-indigo-400 focus:bg-white">
+                <span className="mb-2 block text-sm font-bold text-slate-900">Status</span>
+                <select name="status" value={form.status} onChange={handleFormChange} className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-bold text-slate-900 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200">
                   <option value="Boarding">Boarding</option>
                   <option value="Day Scholar">Day Scholar</option>
                 </select>
               </label>
 
               <label className="block md:col-span-2">
-                <span className="mb-2 block text-sm font-medium text-slate-700">Preferred Route / Destination (Transport)</span>
+                <span className="mb-2 block text-sm font-bold text-slate-900">Preferred Route / Destination (Transport)</span>
                 <select
                   name="preferred_route"
                   value={form.preferred_route || 'Parent Pick-Up'}
                   onChange={handleFormChange}
-                  className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 outline-none transition focus:border-indigo-400 focus:bg-white"
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 font-bold text-slate-900 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
                 >
                   {TRANSPORT_ROUTES.map((route) => (
                     <option key={route} value={route}>{route}</option>

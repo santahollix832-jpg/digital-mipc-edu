@@ -125,31 +125,64 @@ const CUSTOM_WALLPAPER_CLASS = 'wp-photo-custom';
 
 export function ThemeProvider({ user, children }) {
   const [wallpaperId, setWallpaperId] = useState(() => readStoredWallpaper(user?.id || user?.user_id));
-
-  const wallpaper = getWallpaper(wallpaperId);
+  const [customWallpaperUrl, setCustomWallpaperUrl] = useState(() =>
+    readStoredCustomWallpaper(user?.id || user?.user_id),
+  );
 
   useEffect(() => {
     if (!user) return;
     setWallpaperId(readStoredWallpaper(user.id || user.user_id));
+    setCustomWallpaperUrl(readStoredCustomWallpaper(user.id || user.user_id));
   }, [user?.id || user?.user_id]);
+
+  const wallpaper = useMemo(() => {
+    const registered = getWallpaper(wallpaperId);
+    if (registered.type === 'photo' && registered.id !== 'custom' && customWallpaperUrl) {
+      return { ...registered, id: 'custom', name: 'Custom Campus Photo', type: 'photo', image: customWallpaperUrl, preview: `url("${customWallpaperUrl}") center / cover no-repeat` };
+    }
+    return registered;
+  }, [wallpaperId, customWallpaperUrl]);
 
   useEffect(() => {
     const root = document.body;
     WALLPAPERS.forEach((w) => root.classList.remove(w.className));
-    root.classList.add(wallpaper.className);
     root.classList.remove(CUSTOM_WALLPAPER_CLASS);
-  }, [wallpaper.className]);
+    if (wallpaper.id === 'custom') {
+      root.classList.add(CUSTOM_WALLPAPER_CLASS);
+      root.style.backgroundImage = `linear-gradient(180deg, rgba(15, 23, 42, 0.6), rgba(15, 23, 42, 0.34) 45%, rgba(15, 23, 42, 0.72)), url("${wallpaper.image}")`;
+      root.style.backgroundSize = 'cover';
+      root.style.backgroundPosition = 'center';
+      root.style.backgroundRepeat = 'no-repeat';
+      root.style.backgroundAttachment = 'fixed';
+    } else {
+      root.classList.add(wallpaper.className);
+      root.style.backgroundImage = '';
+      root.style.backgroundSize = '';
+      root.style.backgroundPosition = '';
+      root.style.backgroundRepeat = '';
+      root.style.backgroundAttachment = '';
+    }
+  }, [wallpaper]);
 
   const value = useMemo(
     () => ({
       wallpaper,
       wallpapers: WALLPAPERS,
+      customWallpaperUrl,
       setWallpaper(id) {
         setWallpaperId(id);
         writeStoredWallpaper(user?.id || user?.user_id, id);
       },
+      setCustomWallpaper(imageUrl) {
+        setCustomWallpaperUrl(imageUrl);
+        writeStoredCustomWallpaper(user?.id || user?.user_id, imageUrl);
+        if (imageUrl) {
+          setWallpaperId('campus-hills'); // photo wallpaper base — custom URL overrides the image
+          writeStoredWallpaper(user?.id || user?.user_id, 'campus-hills');
+        }
+      },
     }),
-    [wallpaper, user?.id || user?.user_id],
+    [wallpaper, customWallpaperUrl, user?.id || user?.user_id],
   );
 
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;

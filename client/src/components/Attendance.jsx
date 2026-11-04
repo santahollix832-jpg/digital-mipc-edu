@@ -45,6 +45,8 @@ function Attendance() {
   const [scanOpen, setScanOpen] = useState(false);
   const [scanValue, setScanValue] = useState('');
   const [scanMessage, setScanMessage] = useState('');
+  const [modalClassFilter, setModalClassFilter] = useState('All');
+  const [modalSearch, setModalSearch] = useState('');
   const [cameraActive, setCameraActive] = useState(false);
   const [draft, setDraft] = useState({});
   const cameraVideoRef = useRef(null);
@@ -150,6 +152,9 @@ function Attendance() {
         student.status === 'unmarked' ? '' : student.status,
       ])
     ));
+    setModalClassFilter('All');
+    setModalSearch('');
+    setScanMessage('');
     setScanOpen(true);
   }
 
@@ -182,6 +187,22 @@ function Attendance() {
       setSaving(false);
     }
   }
+
+  const modalStudents = useMemo(() => {
+    const term = modalSearch.trim().toLowerCase();
+    return (summary?.details || []).filter((student) => {
+      const classMatches = modalClassFilter === 'All' || student.class_name === modalClassFilter;
+      const searchMatches = !term ||
+        String(student.name || '').toLowerCase().includes(term) ||
+        String(student.reg_number || '').toLowerCase().includes(term);
+      return classMatches && searchMatches;
+    });
+  }, [summary, modalClassFilter, modalSearch]);
+
+  const modalClassOptions = useMemo(() => {
+    const names = new Set((summary?.details || []).map((student) => student.class_name).filter(Boolean));
+    return ['All', ...Array.from(names).sort()];
+  }, [summary]);
 
   function stopCameraScanner() {
     scannerActiveRef.current = false;
@@ -249,7 +270,7 @@ function Attendance() {
 
   async function startCameraScanner() {
     if (!navigator.mediaDevices?.getUserMedia || !('BarcodeDetector' in window)) {
-      notify('QR camera scanning is unavailable in this browser. Enter the student registration number instead.', 'warning');
+      setScanMessage('QR camera scanning is not supported in this browser. Type the registration number in the manual scan box instead — it works everywhere.');
       return;
     }
     try {
@@ -287,7 +308,7 @@ function Attendance() {
 
   async function startNfcScanner() {
     if (!('NDEFReader' in window)) {
-      notify('Web NFC is not supported here. Use QR scanning or enter the student registration number.', 'warning');
+      setScanMessage('Web NFC is not supported in this browser. Type the registration number in the manual scan box, or use a USB/NFC keyboard-wedge reader — it types straight into the box.');
       return;
     }
     try {
@@ -316,7 +337,7 @@ function Attendance() {
 
   function submitManualScan(event) {
     event.preventDefault();
-    recordScan(scanValue, 'QR');
+    recordScan(scanValue, 'MANUAL');
   }
 
   function exportCsv() {
@@ -534,10 +555,39 @@ function Attendance() {
               <div><p className="text-sm font-semibold uppercase tracking-[0.18em] text-indigo-600">Quick action · {selectedDate}</p><h2 className="mt-1 text-2xl font-bold text-slate-900">Take attendance</h2></div>
               <button type="button" onClick={() => setScanOpen(false)} aria-label="Close attendance modal" className="rounded-full bg-slate-100 p-2 text-slate-600"><X size={18} /></button>
             </div>
+            <section className="mb-4 rounded-2xl border border-slate-200 bg-white p-4">
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                <div className="flex items-center gap-2">
+                  <Users size={17} className="text-indigo-600" />
+                  <h3 className="font-semibold text-slate-900">Filter by class</h3>
+                </div>
+                <select
+                  aria-label="Filter student list by class"
+                  value={modalClassFilter}
+                  onChange={(event) => setModalClassFilter(event.target.value)}
+                  className="w-full rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 shadow-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200 sm:w-auto sm:min-w-[240px]"
+                >
+                  {modalClassOptions.map((option) => (
+                    <option key={option} value={option}>{option === 'All' ? 'All Classes' : option}</option>
+                  ))}
+                </select>
+                <input
+                  type="search"
+                  value={modalSearch}
+                  onChange={(event) => setModalSearch(event.target.value)}
+                  placeholder="Search student by name or reg number…"
+                  aria-label="Search students in this list"
+                  className="w-full flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 shadow-sm outline-none transition placeholder:font-medium placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+                />
+                <span className="shrink-0 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600">
+                  {modalStudents.length} shown
+                </span>
+              </div>
+            </section>
             <section className="mb-5 rounded-2xl border border-indigo-100 bg-indigo-50/60 p-4">
               <div className="mb-3 flex items-center gap-2">
-                <QrCode size={17} className="text-indigo-600" />
-                <h3 className="font-semibold text-slate-900">QR / NFC attendance scanner</h3>
+                <ScanLine size={17} className="text-indigo-600" />
+                <h3 className="font-semibold text-slate-900">Manual scan — type or scan registration number</h3>
               </div>
               <form onSubmit={submitManualScan} className="flex flex-col gap-2 sm:flex-row">
                 <input
@@ -546,7 +596,7 @@ function Attendance() {
                   placeholder="Scan or enter student ID / registration number"
                   aria-label="Student QR or NFC identifier"
                           disabled={!canScanLive}
-                          className="min-w-0 flex-1 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-indigo-400"
+                          className="min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 shadow-sm outline-none transition placeholder:font-medium placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
                         />
                         <button type="submit" disabled={!canScanLive || !scanValue.trim()} className="rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-50">
                           Record scan
@@ -564,7 +614,7 @@ function Attendance() {
               <p className="mt-2 text-xs text-slate-500">Each scan records a server-timestamped entry, then exit. QR codes and NFC text tags should contain a student ID or registration number. External readers can submit an assigned smart-card UID.</p>
             </section>
             <div className="space-y-3">
-              {(summary?.details || []).map((student) => (
+              {modalStudents.map((student) => (
                 <div key={student.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-3 sm:flex-row sm:items-center sm:justify-between">
                   <div><p className="font-semibold text-slate-900">{student.name}</p><p className="text-xs text-slate-500">{student.reg_number || 'No registration number'} · {student.class_name}</p></div>
                   <div className="flex flex-wrap gap-2">
@@ -574,7 +624,7 @@ function Attendance() {
                   </div>
                 </div>
               ))}
-              {!summary?.details?.length && <p className="py-8 text-center text-sm text-slate-500">No students are available to mark.</p>}
+              {!modalStudents.length && <p className="py-8 text-center text-sm text-slate-500">No students match this class filter or search.</p>}
             </div>
             <div className="mt-6 flex flex-col gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex justify-end gap-3">

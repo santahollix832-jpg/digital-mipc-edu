@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Gavel, PlusCircle, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../../api/config';
+import StudentSearchInput from '../StudentSearchInput';
 import { Badge, cardClasses, formatDateTime, inputClasses, labelClasses, useStudents } from './shared';
 
 const ACTION_TYPES = ['Detention', 'Community Service', 'Suspension', 'Counseling Session', 'Written Warning', 'Other'];
@@ -111,12 +112,13 @@ function CorrectiveActions({ toast }) {
         <form onSubmit={handleAssign} className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
           <div>
             <label className={labelClasses}>Student</label>
-            <select className={inputClasses} value={form.student_id} onChange={(e) => setForm({ ...form, student_id: e.target.value })} disabled={Boolean(studentError)}>
-              <option value="">Select student</option>
-              {students.map((s) => (
-                <option key={s.id} value={s.id}>{s.name} — {s.class_name || s.class} ({s.reg_number})</option>
-              ))}
-            </select>
+            <StudentSearchInput
+              students={students}
+              value={form.student_id}
+              onChange={(studentId) => setForm({ ...form, student_id: studentId })}
+              disabled={Boolean(studentError)}
+              inputClassName="w-full rounded-lg border border-slate-300 bg-white py-2.5 pl-10 pr-4 font-bold text-slate-900 shadow-sm outline-none transition placeholder:font-medium placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
+            />
             {studentError && <p className="mt-1 text-sm text-rose-600">{studentError}</p>}
           </div>
           <div>

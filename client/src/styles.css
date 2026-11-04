@@ -12,7 +12,12 @@ body,
 .wp-indigo-glass,
 .wp-slate,
 .wp-emerald,
-.wp-gradient {
+.wp-gradient,
+.wp-photo-campus-hills,
+.wp-photo-campus-quad,
+.wp-photo-tech-aurora,
+.wp-photo-library-quiet,
+.wp-photo-custom {
   min-height: 100vh;
   background-attachment: fixed;
   transition: background 400ms ease;
@@ -42,6 +47,48 @@ body,
   background:
     radial-gradient(1000px 550px at 80% -10%, rgba(14, 165, 233, 0.35), transparent 60%),
     linear-gradient(135deg, #1e1b4b 0%, #4338ca 40%, #0ea5e9 100%);
+}
+
+/* ---- Photo wallpapers (high-resolution campus / tech imagery) ---- */
+.wp-photo-campus-hills {
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.62), rgba(15, 23, 42, 0.32) 40%, rgba(15, 23, 42, 0.68)),
+    url('https://images.unsplash.com/photo-1506905925346-21bda4d32df4?q=80&w=2400&auto=format&fit=crop') center / cover no-repeat;
+}
+
+.wp-photo-campus-quad {
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.66), rgba(15, 23, 42, 0.38) 45%, rgba(15, 23, 42, 0.72)),
+    url('https://images.unsplash.com/photo-1562774053-701939374585?q=80&w=2400&auto=format&fit=crop') center / cover no-repeat;
+}
+
+.wp-photo-tech-aurora {
+  background:
+    linear-gradient(180deg, rgba(15, 23, 42, 0.6), rgba(30, 27, 75, 0.36) 45%, rgba(15, 23, 42, 0.7)),
+    url('https://images.unsplash.com/photo-1480694313141-fce5e697ee25?q=80&w=2400&auto=format&fit=crop') center / cover no-repeat;
+}
+
+.wp-photo-library-quiet {
+  background:
+    linear-gradient(180deg, rgba(28, 25, 23, 0.64), rgba(28, 25, 23, 0.4) 45%, rgba(28, 25, 23, 0.74)),
+    url('https://images.unsplash.com/photo-1521587760476-6c12c4262188?q=80&w=2400&auto=format&fit=crop') center / cover no-repeat;
+}
+
+/* Custom URL wallpaper — the image is injected inline by WallpaperSelector.
+   Keep a dark scrim so app surfaces stay readable regardless of the photo. */
+.wp-photo-custom {
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+}
+
+.wp-photo-custom::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(180deg, rgba(15, 23, 42, 0.6), rgba(15, 23, 42, 0.34) 45%, rgba(15, 23, 42, 0.72));
+  pointer-events: none;
 }
 
 /* App surfaces adapt on top of the wallpaper */

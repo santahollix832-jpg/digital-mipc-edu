@@ -83,35 +83,112 @@ function SaveBar({ saved, dirty, onSave, saving }) {
 
 /* ------------------------------ Wallpaper selector ------------------------------ */
 
+const WALLPAPER_INPUT_CLASS =
+  'w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 shadow-sm outline-none transition focus:border-violet-400 focus:ring-4 focus:ring-violet-500/15';
+
 function WallpaperSelector() {
-  const { wallpaper, wallpapers, setWallpaper } = useTheme();
+  const { wallpaper, wallpapers, customWallpaperUrl, setWallpaper, setCustomWallpaper } = useTheme();
+  const [customUrl, setCustomUrl] = useState(customWallpaperUrl || '');
+
+  function applyCustomUrl() {
+    const imageUrl = customUrl.trim();
+    if (!imageUrl) return;
+    setCustomWallpaper(imageUrl);
+  }
+
+  function clearCustomUrl() {
+    setCustomUrl('');
+    setCustomWallpaper('');
+  }
+
   return (
-    <div className="grid grid-cols-2 gap-3">
-      {wallpapers.map((w) => {
-        const active = wallpaper.id === w.id;
-        return (
+    <div className="space-y-5">
+      <div className="grid gap-4 sm:grid-cols-2">
+        {wallpapers.map((w) => {
+          const active = wallpaper.id === w.id || (w.type === 'photo' && wallpaper.id === 'custom');
+          const isPhoto = w.type === 'photo';
+          return (
+            <button
+              key={w.id}
+              type="button"
+              onClick={() => setWallpaper(w.id)}
+              className={[
+                'group relative overflow-hidden rounded-3xl border-2 p-0 text-left shadow-lg shadow-slate-900/10 transition-all duration-200',
+                active ? 'border-violet-500 shadow-violet-500/30' : 'border-transparent hover:border-violet-200',
+              ].join(' ')}
+            >
+              {/* Full image preview for photo wallpapers, CSS swatch for gradients */}
+              {isPhoto && w.image && (
+                <div className="relative h-40 w-full overflow-hidden">
+                  <img
+                    src={w.image}
+                    alt={`${w.name} campus/tech wallpaper preview`}
+                    loading="lazy"
+                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  />
+                  <span className="absolute left-2 top-2 rounded-full bg-white/85 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-700">
+                    High-resolution
+                  </span>
+                </div>
+              )}
+              <div className="relative h-24 w-full" style={{ background: isPhoto ? w.preview : w.preview }} />
+              <div className="bg-white px-4 py-3">
+                <p className="text-sm font-bold text-slate-800">{w.name}</p>
+                <p className="text-xs text-slate-400">{w.description}</p>
+              </div>
+              {active && (
+                <span className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-violet-600 text-white shadow-lg">
+                  <Check size={14} />
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Custom campus/tech image URL — used for school logos and custom campus photography */}
+      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-sm">
+        <p className="text-sm font-bold text-slate-800">Custom image URL</p>
+        <p className="text-xs text-slate-400">
+          Paste a high-resolution campus, tech, or school logo image URL to use it as your wallpaper.
+        </p>
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+          <input
+            className={WALLPAPER_INPUT_CLASS}
+            type="url"
+            inputMode="url"
+            placeholder="https://example.com/campus-logo.jpg"
+            value={customUrl}
+            onChange={(e) => setCustomUrl(e.target.value)}
+          />
           <button
-            key={w.id}
             type="button"
-            onClick={() => setWallpaper(w.id)}
-            className={[
-              'group relative overflow-hidden rounded-2xl border-2 p-0 text-left transition-all duration-200',
-              active ? 'border-indigo-500 shadow-lg shadow-indigo-500/30' : 'border-transparent hover:border-indigo-200',
-            ].join(' ')}
+            onClick={applyCustomUrl}
+            disabled={!customUrl.trim()}
+            className="shrink-0 rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-500/30 transition hover:bg-violet-500 disabled:opacity-50"
           >
-            <div className="h-20 w-full" style={{ background: w.preview }} />
-            <div className="bg-white px-3 py-2.5">
-              <p className="text-sm font-bold text-slate-800">{w.name}</p>
-              <p className="text-xs text-slate-400">{w.description}</p>
-            </div>
-            {active && (
-              <span className="absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-full bg-indigo-600 text-white shadow-lg">
-                <Check size={14} />
-              </span>
-            )}
+            Apply
           </button>
-        );
-      })}
+          {customWallpaperUrl && (
+            <button
+              type="button"
+              onClick={clearCustomUrl}
+              className="shrink-0 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+        {customWallpaperUrl && (
+          <div className="mt-3 overflow-hidden rounded-2xl border border-slate-200">
+            <img
+              src={customWallpaperUrl}
+              alt="Applied custom wallpaper full preview"
+              className="h-40 w-full object-cover"
+            />
+          </div>
+        )}
+      </div>
     </div>
   );
 }
