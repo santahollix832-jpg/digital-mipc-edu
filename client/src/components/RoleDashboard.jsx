@@ -1,8 +1,15 @@
+import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  AlertTriangle, ArrowUpRight, ArrowDownRight, Bell, Bus, CalendarCheck2, DoorOpen,
-  ShieldAlert, TrendingUp, UserCheck, Users, Activity,
+  AlertTriangle, ArrowUpRight, ArrowDownRight, Bell, Bus, CalendarCheck2, Clock, DoorOpen,
+  ShieldAlert, TrendingUp, UserCheck, Users, Activity, RefreshCw, Wifi, WifiOff, Loader2,
 } from 'lucide-react';
+import {
+  useStudentCount, useLeavePermissions, useDisciplineMetrics,
+  useAttendanceSummary, useTransportStats, useGateStatus,
+} from './dashboardService';
+
+/* ------------------------------ Shared primitives ------------------------------ */
 
 function TrendBadge({ trend, value }) {
   const up = trend >= 0;
@@ -14,7 +21,7 @@ function TrendBadge({ trend, value }) {
   );
 }
 
-function StatCard({ icon: Icon, label, value, trend, trendLabel, accent = 'from-indigo-500 to-indigo-600' }) {
+function StatCard({ icon: Icon, label, value, trend, trendLabel, accent = 'from-indigo-500 to-indigo-600', loading }) {
   return (
     <div className="group rounded-3xl border border-white/10 bg-white p-5 shadow-xl shadow-slate-900/10 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-2xl">
       <div className="flex items-center justify-between">
@@ -23,7 +30,9 @@ function StatCard({ icon: Icon, label, value, trend, trendLabel, accent = 'from-
         </div>
         {typeof trend === 'number' && <TrendBadge trend={trend} value={trendLabel || 'vs last week'} />}
       </div>
-      <p className="mt-4 text-3xl font-extrabold tracking-tight text-slate-900">{value}</p>
+      <p className={`mt-4 text-3xl font-extrabold tracking-tight text-slate-900 ${loading ? 'animate-pulse text-slate-300' : ''}`}>
+        {loading ? '····' : value}
+      </p>
       <p className="mt-1 text-sm font-medium text-slate-500">{label}</p>
     </div>
   );
@@ -46,8 +55,45 @@ function WidgetCard({ title, icon: Icon, children, accent = 'from-indigo-500 to-
   );
 }
 
+function CardSkeleton({ rows = 3 }) {
+  return (
+    <div className="space-y-3">
+      {[...Array(rows)].map((_, index) => (
+        <div key={index} className="h-12 animate-pulse rounded-2xl bg-slate-100" />
+      ))}
+    </div>
+  );
+}
+
+function WidgetLoading() {
+  return (
+    <div className="flex items-center gap-2 py-8 text-sm font-medium text-slate-400">
+      <Loader2 size={16} className="animate-spin" /> Loading live data…
+    </div>
+  );
+}
+
+function ErrorNotice({ message, onRetry }) {
+  if (!message) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800" role="status">
+      <WifiOff size={16} />
+      <span className="flex-1">{message} The dashboard stays available — showing the last known values as “—” until the connection recovers.</span>
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-800 transition hover:bg-amber-100"
+        >
+          <RefreshCw size={13} /> Retry
+        </button>
+      )}
+    </div>
+  );
+}
+
 function ProgressRow({ label, value, max, color = 'bg-indigo-500' }) {
-  const pct = Math.min(100, Math.round((value / max) * 100));
+  const pct = max > 0 ? Math.min(100, Math.round((value / max) * 100)) : 0;
   return (
     <div>
       <div className="mb-1 flex items-center justify-between text-xs">
@@ -61,7 +107,7 @@ function ProgressRow({ label, value, max, color = 'bg-indigo-500' }) {
   );
 }
 
-function ActionList({ items }) {
+function ActionList({ items, emptyText = 'Nothing here — all clear.' }) {
   return (
     <ul className="space-y-3">
       {items.map((item, i) => (
@@ -75,7 +121,7 @@ function ActionList({ items }) {
           </div>
         </li>
       ))}
-      {items.length === 0 && <li className="rounded-2xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-400">Nothing here — all clear.</li>}
+      {items.length === 0 && <li className="rounded-2xl bg-slate-50 px-4 py-6 text-center text-sm text-slate-400">{emptyText}</li>}
     </ul>
   );
 }
@@ -127,72 +173,136 @@ const sharedQuickLinks = {
   ],
 };
 
+function QuickActionsCard({ role }) {
+  return (
+    <WidgetCard title="Quick actions" icon={ArrowUpRight} accent="from-fuchsia-500 to-purple-600">
+      <div className="space-y-3">
+        {(sharedQuickLinks[role] || sharedQuickLinks.ADMIN).map((l) => <QuickLink key={l.label} {...l} />)}
+      </div>
+    </WidgetCard>
+  );
+}
+
+function WidgetError({ error, onRetry, children }) {
+  return (
+    <>
+      <ErrorNotice message={error} onRetry={onRetry} />
+      {error ? <CardSkeleton /> : children}
+    </>
+  );
+}
+
 /* ------------------------------ Role dashboards ------------------------------ */
 
 function AdminDashboard() {
+  const students = useStudentCount();
+  const discipline = useDisciplineMetrics();
+  const attendance = useAttendanceSummary();
+  const transport = useTransportStats();
+
+  const presentRate = attendance.data && attendance.data.totalEnrolled > 0
+    ? Math.round((attendance.data.present / attendance.data.totalEnrolled) * 100)
+    : 0;
+
   return (
     <>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard icon={Users} label="Enrolled students" value="1,248" trend={3} trendLabel="this term" />
-        <StatCard icon={ShieldAlert} label="Open discipline cases" value="17" trend={-12} accent="from-rose-500 to-rose-600" />
-        <StatCard icon={Bus} label="Active conduits today" value="9" trend={5} accent="from-amber-500 to-orange-600" />
-        <StatCard icon={Bell} label="IoT bell uptime" value="99.8%" trend={0} accent="from-emerald-500 to-emerald-600" />
+        <StatCard icon={Users} label="Enrolled students" value={students.data?.total.toLocaleString() ?? '—'} loading={students.loading} accent="from-indigo-500 to-indigo-600" />
+        <StatCard icon={ShieldAlert} label="Discipline incidents recorded" value={discipline.data ? discipline.data.totalIncidents.toLocaleString() : '—'} loading={discipline.loading} accent="from-rose-500 to-rose-600" />
+        <StatCard icon={Bus} label="Buses in transit" value={transport.data ? `${transport.data.activeBuses} / ${transport.data.totalBuses}` : '—'} loading={transport.loading} accent="from-amber-500 to-orange-600" />
+        <StatCard icon={CalendarCheck2} label={`Present today${attendance.data ? ` · ${attendance.data.date}` : ''}`} value={attendance.data ? `${presentRate}%` : '—'} loading={attendance.loading} accent="from-emerald-500 to-emerald-600" />
       </div>
+
+      <div className="mt-4">
+        <ErrorNotice
+          message={[students.error, discipline.error, attendance.error, transport.error].filter(Boolean)[0]}
+          onRetry={() => { students.reload(); discipline.reload(); attendance.reload(); transport.reload(); }}
+        />
+      </div>
+
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
-        <WidgetCard title="Role activity this week" icon={TrendingUp}>
-          <div className="space-y-4">
-            <ProgressRow label="PATRON" value={82} max={100} />
-            <ProgressRow label="MATRON" value={64} max={100} color="bg-sky-500" />
-            <ProgressRow label="DOD" value={47} max={100} color="bg-rose-500" />
-            <ProgressRow label="SECURITY" value={91} max={100} color="bg-slate-700" />
-          </div>
+        <WidgetCard title="Attendance breakdown today" icon={CalendarCheck2} accent="from-sky-500 to-blue-600">
+          {attendance.loading ? <WidgetLoading /> : (
+            <div className="space-y-4">
+              <ProgressRow label="Present" value={attendance.data?.present ?? 0} max={attendance.data?.totalEnrolled ?? 0} color="bg-emerald-500" />
+              <ProgressRow label="Late" value={attendance.data?.late ?? 0} max={attendance.data?.totalEnrolled ?? 0} color="bg-amber-500" />
+              <ProgressRow label="Absent" value={attendance.data?.absent ?? 0} max={attendance.data?.totalEnrolled ?? 0} color="bg-rose-500" />
+              <ProgressRow label="On permission" value={attendance.data?.permission ?? 0} max={attendance.data?.totalEnrolled ?? 0} color="bg-sky-500" />
+              <p className="text-xs text-slate-400">{attendance.data?.unmarked ?? 0} student(s) not yet marked.</p>
+            </div>
+          )}
         </WidgetCard>
-        <WidgetCard title="Recent system events" icon={AlertTriangle} accent="from-amber-500 to-orange-600">
-          <ActionList items={[
-            { title: 'Nightly backup completed', meta: 'Today 23:00 · healthy', color: 'bg-emerald-500' },
-            { title: 'DOD approved 4 incidents', meta: 'Yesterday 16:42', color: 'bg-rose-500' },
-            { title: 'New staff account created', meta: 'Monday 09:15', color: 'bg-indigo-500' },
-          ]} />
+
+        <WidgetCard title="Discipline overview" icon={ShieldAlert} accent="from-rose-500 to-rose-600">
+          {discipline.loading ? <WidgetLoading /> : (
+            <div className="space-y-4">
+              <ProgressRow label="Pending incident approvals" value={discipline.data?.pending ?? 0} max={Math.max(discipline.data?.totalIncidents ?? 0, 1)} color="bg-amber-500" />
+              <ProgressRow label="Approved incidents" value={discipline.data?.approved ?? 0} max={Math.max(discipline.data?.totalIncidents ?? 0, 1)} color="bg-rose-500" />
+              <ProgressRow label="Corrective actions completed" value={discipline.data?.completedActions ?? 0} max={Math.max((discipline.data?.completedActions ?? 0) + (discipline.data?.pendingActions ?? 0) + (discipline.data?.inProgressActions ?? 0), 1)} color="bg-emerald-500" />
+              <p className="text-xs text-slate-400">Merits awarded: {discipline.data?.totalMerits ?? 0} · Demerits: {discipline.data?.totalDemerits ?? 0}</p>
+            </div>
+          )}
         </WidgetCard>
-        <WidgetCard title="Quick actions" icon={ArrowUpRight} accent="from-fuchsia-500 to-purple-600">
-          <div className="space-y-3">
-            {(sharedQuickLinks.ADMIN || []).map((l) => <QuickLink key={l.label} {...l} />)}
-          </div>
-        </WidgetCard>
+
+        <QuickActionsCard role="ADMIN" />
       </div>
     </>
   );
 }
 
 function DodDashboard() {
+  const discipline = useDisciplineMetrics();
+  const students = useStudentCount();
+  const attendance = useAttendanceSummary();
+
+  const topClasses = useMemo(() => (discipline.data?.incidentsByClass || []).slice(0, 4), [discipline.data]);
+  const maxClassIncidents = topClasses[0]?.count || 1;
+
   return (
     <>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard icon={ShieldAlert} label="Pending approvals" value="6" trend={-8} accent="from-rose-500 to-rose-600" />
-        <StatCard icon={AlertTriangle} label="Critical incidents (7d)" value="3" trend={-25} accent="from-orange-500 to-red-600" />
-        <StatCard icon={TrendingUp} label="Avg. resolution time" value="1.8d" trend={-15} accent="from-emerald-500 to-emerald-600" />
-        <StatCard icon={Users} label="Students on watchlist" value="12" trend={4} accent="from-amber-500 to-orange-600" />
+        <StatCard icon={ShieldAlert} label="Pending incident approvals" value={discipline.data ? discipline.data.pending.toLocaleString() : '—'} loading={discipline.loading} accent="from-rose-500 to-rose-600" />
+        <StatCard icon={AlertTriangle} label="Total incidents on record" value={discipline.data ? discipline.data.totalIncidents.toLocaleString() : '—'} loading={discipline.loading} accent="from-orange-500 to-red-600" />
+        <StatCard icon={Users} label="Students in directory" value={students.data?.total.toLocaleString() ?? '—'} loading={students.loading} accent="from-amber-500 to-orange-600" />
+        <StatCard icon={CalendarCheck2} label="Marked absent today" value={attendance.data ? attendance.data.absent.toLocaleString() : '—'} loading={attendance.loading} accent="from-sky-500 to-blue-600" />
       </div>
+
+      <div className="mt-4">
+        <ErrorNotice
+          message={[discipline.error, students.error, attendance.error].filter(Boolean)[0]}
+          onRetry={() => { discipline.reload(); students.reload(); attendance.reload(); }}
+        />
+      </div>
+
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
-        <WidgetCard title="Awaiting your approval" icon={UserCheck} accent="from-rose-500 to-rose-600">
-          <ActionList items={[
-            { title: 'Incident #482 — Fighting (Critical)', meta: 'Filed by PATRON · 2h ago', color: 'bg-rose-500' },
-            { title: 'Incident #481 — Disrespect to staff', meta: 'Filed by TEACHER · 5h ago', color: 'bg-amber-500' },
-            { title: 'Corrective action plan — S3 IMB', meta: 'Submitted · yesterday', color: 'bg-indigo-500' },
-          ]} />
+        <WidgetCard title="Incidents by class (live)" icon={TrendingUp} accent="from-rose-500 to-rose-600">
+          {discipline.loading ? <WidgetLoading /> : (
+            <div className="space-y-4">
+              {topClasses.length === 0 && <p className="py-4 text-center text-sm text-slate-400">No incidents recorded for any class.</p>}
+              {topClasses.map((row) => (
+                <ProgressRow
+                  key={row.label}
+                  label={`${row.label || 'Unassigned'}`}
+                  value={row.count}
+                  max={maxClassIncidents}
+                  color="bg-rose-500"
+                />
+              ))}
+            </div>
+          )}
         </WidgetCard>
-        <WidgetCard title="Threshold breaches" icon={AlertTriangle} accent="from-orange-500 to-red-600">
-          <div className="space-y-4">
-            <ProgressRow label="Student #1042 — 18 pts" value={18} max={20} color="bg-rose-500" />
-            <ProgressRow label="Student #0977 — 14 pts" value={14} max={20} color="bg-amber-500" />
-            <ProgressRow label="Student #0861 — 11 pts" value={11} max={20} color="bg-amber-400" />
-          </div>
+
+        <WidgetCard title="Corrective actions pipeline" icon={Clock} accent="from-indigo-500 to-indigo-600">
+          {discipline.loading ? <WidgetLoading /> : (
+            <div className="space-y-4">
+              <ProgressRow label="Pending" value={discipline.data?.pendingActions ?? 0} max={Math.max((discipline.data?.pendingActions ?? 0) + (discipline.data?.inProgressActions ?? 0) + (discipline.data?.completedActions ?? 0), 1)} color="bg-amber-500" />
+              <ProgressRow label="In progress" value={discipline.data?.inProgressActions ?? 0} max={Math.max((discipline.data?.pendingActions ?? 0) + (discipline.data?.inProgressActions ?? 0) + (discipline.data?.completedActions ?? 0), 1)} color="bg-indigo-500" />
+              <ProgressRow label="Completed" value={discipline.data?.completedActions ?? 0} max={Math.max((discipline.data?.pendingActions ?? 0) + (discipline.data?.inProgressActions ?? 0) + (discipline.data?.completedActions ?? 0), 1)} color="bg-emerald-500" />
+            </div>
+          )}
         </WidgetCard>
-        <WidgetCard title="Quick actions" icon={ArrowUpRight} accent="from-fuchsia-500 to-purple-600">
-          <div className="space-y-3">
-            {(sharedQuickLinks.DOD || []).map((l) => <QuickLink key={l.label} {...l} />)}
-          </div>
-        </WidgetCard>
+
+        <QuickActionsCard role="DOD" />
       </div>
     </>
   );
@@ -200,71 +310,177 @@ function DodDashboard() {
 
 function PatronMatronDashboard({ role }) {
   const isPatron = role === 'PATRON';
+  const students = useStudentCount();
+  const permissions = useLeavePermissions();
+  const attendance = useAttendanceSummary();
+
+  const attendanceRate = attendance.data && attendance.data.totalEnrolled > 0
+    ? Math.round(((attendance.data.present + attendance.data.late) / attendance.data.totalEnrolled) * 100)
+    : 0;
+
   return (
     <>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard icon={Users} label="Students under care" value={isPatron ? '312' : '286'} trend={2} accent="from-emerald-500 to-emerald-600" />
-        <StatCard icon={DoorOpen} label="Departures today" value="14" trend={-6} accent="from-indigo-500 to-indigo-600" />
-        <StatCard icon={CalendarCheck2} label="Attendance rate" value="96.4%" trend={1} accent="from-sky-500 to-blue-600" />
-        <StatCard icon={AlertTriangle} label="Pending leave requests" value="7" trend={10} accent="from-amber-500 to-orange-600" />
+        <StatCard icon={Users} label="Students under care" value={students.data?.total.toLocaleString() ?? '—'} loading={students.loading} accent="from-emerald-500 to-emerald-600" />
+        <StatCard icon={DoorOpen} label="Students out on leave" value={permissions.data ? permissions.data.active.toLocaleString() : '—'} loading={permissions.loading} accent="from-indigo-500 to-indigo-600" />
+        <StatCard icon={CalendarCheck2} label={`Attendance rate (present + late)`} value={attendance.data ? `${attendanceRate}%` : '—'} loading={attendance.loading} accent="from-sky-500 to-blue-600" />
+        <StatCard icon={AlertTriangle} label="Pending leave requests" value={permissions.data ? permissions.data.pending.toLocaleString() : '—'} loading={permissions.loading} accent="from-amber-500 to-orange-600" />
       </div>
+
+      <div className="mt-4">
+        <ErrorNotice
+          message={[students.error, permissions.error, attendance.error].filter(Boolean)[0]}
+          onRetry={() => { students.reload(); permissions.reload(); attendance.reload(); }}
+        />
+      </div>
+
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
-        <WidgetCard title="Pending departure requests" icon={DoorOpen} accent="from-emerald-500 to-teal-600">
-          <ActionList items={[
-            { title: 'Aline M. — Weekend departure', meta: 'Guardian arriving 15:00 · escort confirmed', color: 'bg-emerald-500' },
-            { title: 'Eric N. — Medical visit', meta: 'Matron endorsed · awaiting approval', color: 'bg-indigo-500' },
-            { title: 'Diane U. — Family event', meta: 'Pending guardian confirmation', color: 'bg-amber-500' },
-          ]} />
+        <WidgetCard title="Pending leave requests (live queue)" icon={DoorOpen} accent="from-emerald-500 to-teal-600">
+          {permissions.loading ? <WidgetLoading /> : (
+            <ActionList
+              emptyText="No pending leave requests."
+              items={(permissions.data?.pendingList || []).map((p) => ({
+                title: `${p.student_name || 'Student'} — ${p.reason || 'Leave request'}`,
+                meta: `${p.status} · departs ${p.departure_time ? new Date(p.departure_time).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : 'TBC'}`,
+                color: 'bg-amber-500',
+              }))}
+            />
+          )}
         </WidgetCard>
-        <WidgetCard title={isPatron ? 'Weekly welfare snapshot' : 'Dormitory occupancy'} icon={Users} accent="from-sky-500 to-indigo-600">
-          <div className="space-y-4">
-            <ProgressRow label="Rooms occupied" value={92} max={100} />
-            <ProgressRow label="Medical flags resolved" value={18} max={21} color="bg-rose-500" />
-            <ProgressRow label="Returns on schedule" value={53} max={56} color="bg-emerald-500" />
-          </div>
+
+        <WidgetCard title={isPatron ? 'Leave & return snapshot' : 'Leave & return snapshot'} icon={Users} accent="from-sky-500 to-indigo-600">
+          {permissions.loading ? <WidgetLoading /> : (
+            <div className="space-y-4">
+              <ProgressRow label="Approved (still out)" value={permissions.data?.active ?? 0} max={Math.max(permissions.data?.total ?? 0, 1)} color="bg-indigo-500" />
+              <ProgressRow label="Overdue returns" value={permissions.data?.overdue ?? 0} max={Math.max(permissions.data?.total ?? 0, 1)} color="bg-rose-500" />
+              <ProgressRow label="Returned safely" value={permissions.data?.returned ?? 0} max={Math.max(permissions.data?.total ?? 0, 1)} color="bg-emerald-500" />
+              <p className="text-xs text-slate-400">{permissions.data?.total ?? 0} total permits on record.</p>
+            </div>
+          )}
         </WidgetCard>
-        <WidgetCard title="Quick actions" icon={ArrowUpRight} accent="from-fuchsia-500 to-purple-600">
-          <div className="space-y-3">
-            {(sharedQuickLinks[role] || []).map((l) => <QuickLink key={l.label} {...l} />)}
-          </div>
-        </WidgetCard>
+
+        <QuickActionsCard role={role} />
       </div>
     </>
   );
 }
 
 function SecurityDashboard() {
+  const gate = useGateStatus();
+  const transport = useTransportStats();
+  const students = useStudentCount();
+
   return (
     <>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard icon={ShieldAlert} label="Gate entries today" value="213" trend={7} accent="from-slate-600 to-slate-800" />
-        <StatCard icon={Bus} label="Conduits handled" value="9" trend={5} accent="from-amber-500 to-orange-600" />
-        <StatCard icon={AlertTriangle} label="Overdue returns" value="4" trend={-20} accent="from-rose-500 to-rose-600" />
-        <StatCard icon={UserCheck} label="Verified guardians" value="67" trend={12} accent="from-emerald-500 to-emerald-600" />
+        <StatCard icon={DoorOpen} label="Students out on approved leave" value={gate.data ? gate.data.outsideNow.toLocaleString() : '—'} loading={gate.loading} accent="from-slate-600 to-slate-800" />
+        <StatCard icon={Bus} label="Buses in transit" value={transport.data ? transport.data.activeBuses.toLocaleString() : '—'} loading={transport.loading} accent="from-amber-500 to-orange-600" />
+        <StatCard icon={AlertTriangle} label="Overdue returns" value={gate.data ? gate.data.overdue.toLocaleString() : '—'} loading={gate.loading} accent="from-rose-500 to-rose-600" />
+        <StatCard icon={Users} label="Students in directory" value={students.data?.total.toLocaleString() ?? '—'} loading={students.loading} accent="from-emerald-500 to-emerald-600" />
       </div>
+
+      <div className="mt-4">
+        <ErrorNotice
+          message={[gate.error, transport.error, students.error].filter(Boolean)[0]}
+          onRetry={() => { gate.reload(); transport.reload(); students.reload(); }}
+        />
+      </div>
+
       <div className="mt-6 grid gap-6 lg:grid-cols-3">
-        <WidgetCard title="Live gate feed" icon={Activity} accent="from-slate-600 to-slate-800">
-          <ActionList items={[
-            { title: 'Gate A — Guardian pickup verified', meta: '14:22 · Student #1042', color: 'bg-emerald-500' },
-            { title: 'Gate B — Conduit BUS-07 departed', meta: '14:05 · 38 students aboard', color: 'bg-amber-500' },
-            { title: 'Gate A — Unverified visitor turned away', meta: '13:47 · escalated to admin', color: 'bg-rose-500' },
-          ]} />
+        <WidgetCard title="Live gate feed — students outside" icon={Activity} accent="from-slate-600 to-slate-800">
+          {gate.loading ? <WidgetLoading /> : (
+            <ActionList
+              emptyText="No students are outside on leave right now."
+              items={(gate.data?.active || []).slice(0, 5).map((row) => ({
+                title: `${row.student_name || 'Student'} — ${row.reason || 'Leave'}`,
+                meta: row.status === 'Overdue'
+                  ? `OVERDUE · expected back ${row.expected_return_time ? new Date(row.expected_return_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}`
+                  : `Approved · due back ${row.expected_return_time ? new Date(row.expected_return_time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '—'}`,
+                color: row.status === 'Overdue' ? 'bg-rose-500' : 'bg-emerald-500',
+              }))}
+            />
+          )}
         </WidgetCard>
-        <WidgetCard title="Overdue watch" icon={AlertTriangle} accent="from-rose-500 to-orange-500">
-          <ActionList items={[
-            { title: 'Student #0861 — 34 min overdue', meta: 'Escort notified · audio alert sent', color: 'bg-rose-500' },
-            { title: 'Conduit BUS-03 — 12 min overdue', meta: 'Driver contacted', color: 'bg-amber-500' },
-          ]} />
+
+        <WidgetCard title="Fleet status (live)" icon={Bus} accent="from-amber-500 to-orange-600">
+          {transport.loading ? <WidgetLoading /> : (
+            <div className="space-y-4">
+              <ProgressRow label="In transit" value={transport.data?.activeBuses ?? 0} max={Math.max(transport.data?.totalBuses ?? 0, 1)} color="bg-emerald-500" />
+              <ProgressRow label="Delayed" value={transport.data?.delayed ?? 0} max={Math.max(transport.data?.totalBuses ?? 0, 1)} color="bg-rose-500" />
+              <ProgressRow label="Completed" value={transport.data?.completed ?? 0} max={Math.max(transport.data?.totalBuses ?? 0, 1)} color="bg-slate-600" />
+              <p className="text-xs text-slate-400">{transport.data?.studentsInTransit ?? 0} student(s) currently on buses · on-time rate {transport.data?.onTimeRate ?? '0%'}.</p>
+            </div>
+          )}
         </WidgetCard>
-        <WidgetCard title="Quick actions" icon={ArrowUpRight} accent="from-fuchsia-500 to-purple-600">
-          <div className="space-y-3">
-            {(sharedQuickLinks.SECURITY || []).map((l) => <QuickLink key={l.label} {...l} />)}
-          </div>
-        </WidgetCard>
+
+        <QuickActionsCard role="SECURITY" />
       </div>
     </>
   );
 }
+
+function TeacherDashboard() {
+  const students = useStudentCount();
+  const attendance = useAttendanceSummary();
+
+  const presentRate = attendance.data && attendance.data.totalEnrolled > 0
+    ? Math.round((attendance.data.present / attendance.data.totalEnrolled) * 100)
+    : 0;
+
+  return (
+    <>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard icon={Users} label="Students in directory" value={students.data?.total.toLocaleString() ?? '—'} loading={students.loading} accent="from-indigo-500 to-indigo-600" />
+        <StatCard icon={CalendarCheck2} label="Present today" value={attendance.data ? `${attendance.data.present} / ${attendance.data.totalEnrolled}` : '—'} loading={attendance.loading} accent="from-emerald-500 to-emerald-600" />
+        <StatCard icon={AlertTriangle} label="Not marked yet" value={attendance.data ? attendance.data.unmarked.toLocaleString() : '—'} loading={attendance.loading} accent="from-amber-500 to-orange-600" />
+        <StatCard icon={TrendingUp} label="Attendance rate" value={attendance.data ? `${presentRate}%` : '—'} loading={attendance.loading} accent="from-sky-500 to-blue-600" />
+      </div>
+
+      <div className="mt-4">
+        <ErrorNotice
+          message={[students.error, attendance.error].filter(Boolean)[0]}
+          onRetry={() => { students.reload(); attendance.reload(); }}
+        />
+      </div>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-3">
+        <WidgetCard title="Today's register at a glance" icon={CalendarCheck2} accent="from-emerald-500 to-emerald-600">
+          {attendance.loading ? <WidgetLoading /> : (
+            <div className="space-y-4">
+              <ProgressRow label="Present" value={attendance.data?.present ?? 0} max={attendance.data?.totalEnrolled ?? 0} color="bg-emerald-500" />
+              <ProgressRow label="Late" value={attendance.data?.late ?? 0} max={attendance.data?.totalEnrolled ?? 0} color="bg-amber-500" />
+              <ProgressRow label="Absent" value={attendance.data?.absent ?? 0} max={attendance.data?.totalEnrolled ?? 0} color="bg-rose-500" />
+              <ProgressRow label="On permission" value={attendance.data?.permission ?? 0} max={attendance.data?.totalEnrolled ?? 0} color="bg-sky-500" />
+            </div>
+          )}
+        </WidgetCard>
+
+        <WidgetCard title="Class breakdown (live)" icon={Users} accent="from-indigo-500 to-indigo-600">
+          {attendance.loading ? <WidgetLoading /> : (
+            <div className="space-y-4">
+              {(attendance.data?.classes || []).slice(0, 5).map((row) => (
+                <ProgressRow
+                  key={row.class_name}
+                  label={row.class_name}
+                  value={row.present || 0}
+                  max={row.total_enrolled || 0}
+                  color="bg-indigo-500"
+                />
+              ))}
+              {(attendance.data?.classes || []).length === 0 && (
+                <p className="py-4 text-center text-sm text-slate-400">No class data for the selected date.</p>
+              )}
+            </div>
+          )}
+        </WidgetCard>
+
+        <QuickActionsCard role="TEACHER" />
+      </div>
+    </>
+  );
+}
+
+/* ------------------------------ Root ------------------------------ */
 
 export default function RoleDashboard({ role }) {
   const dashboards = {
@@ -272,6 +488,7 @@ export default function RoleDashboard({ role }) {
     DOD: DodDashboard,
     PATRON: () => <PatronMatronDashboard role="PATRON" />,
     MATRON: () => <PatronMatronDashboard role="MATRON" />,
+    TEACHER: TeacherDashboard,
     SECURITY: SecurityDashboard,
   };
   const Active = dashboards[role] || AdminDashboard;
@@ -280,6 +497,9 @@ export default function RoleDashboard({ role }) {
       <header className="mb-6">
         <p className="text-sm font-semibold uppercase tracking-wide text-indigo-300">Executive Dashboard</p>
         <h1 className="mt-1 text-2xl font-bold text-white md:text-3xl">{role} Overview</h1>
+        <p className="mt-1 flex items-center gap-1.5 text-xs text-slate-300">
+          <Wifi size={13} /> Live database metrics — refreshed automatically every 30 seconds.
+        </p>
       </header>
       <div className="animate-fade-up">
         <Active />
