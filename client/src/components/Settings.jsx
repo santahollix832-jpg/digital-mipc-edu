@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Bell, Building2, Check, DatabaseBackup, Download, Eye, KeyRound, Lock, Palette,
+  Bell, Building2, Check, DatabaseBackup, Download, Eye, EyeOff, KeyRound, Loader2, Lock, Palette,
   RefreshCw, Save, School, Settings2, Shield, ShieldAlert, ShieldCheck, Sliders, Sparkles,
-  Upload, UserCircle, Users, Volume2,
+  Trash2, Upload, UserCircle, Users, Volume2, X,
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
-import { AUTH_API_BASE_URL, API_CLIENT_CONFIG, safeJsonResponse } from '../api/config';
+import { AUTH_API_BASE_URL, API_CLIENT_CONFIG, apiFetch, safeJsonResponse } from '../api/config';
 
 /* ----------------------------- Shared building blocks ----------------------------- */
 
@@ -460,32 +460,310 @@ function BellConfiguration() {
 }
 
 function UserRoleManagement() {
-  const roles = [
-    { role: 'ADMIN', users: 2, description: 'Full platform control, settings and user management', color: 'bg-indigo-600' },
-    { role: 'DOD', users: 1, description: 'Discipline oversight, approvals and rule thresholds', color: 'bg-rose-600' },
-    { role: 'PATRON', users: 3, description: 'Student welfare, departures and attendance', color: 'bg-emerald-600' },
-    { role: 'MATRON', users: 2, description: 'Dormitory care, health and boarding roster', color: 'bg-sky-600' },
-    { role: 'SECURITY', users: 4, description: 'Gate logs, conduits and transport tracking', color: 'bg-slate-700' },
-  ];
+  const { user } = useAuth();
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [revealed, setRevealed] = useState({});          // username visibility per account
+  const [deleting, setDeleting] = useState(null);        // user pending delete confirmation
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [notice, setNotice] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({ full_name: '', role: '', password: '' });
+  const [savingId, setSavingId] = useState(null);
+
+  const ROLE_DESCRIPTIONS = {
+    ADMIN: 'Full platform control, settings and user management',
+    DOD: 'Discipline oversight, approvals and rule thresholds',
+    PATRON: 'Student welfare, departures and attendance',
+    MATRON: 'Dormitory care, health and boarding roster',
+    TEACHER: 'Class attendance and emergency bell alerts',
+    SECURITY: 'Gate logs, conduits and transport tracking',
+  };
+  const ROLE_COLORS = {
+    ADMIN: 'bg-indigo-600', DOD: 'bg-rose-600', PATRON: 'bg-emerald-600',
+    MATRON: 'bg-sky-600', TEACHER: 'bg-fuchsia-600', SECURITY: 'bg-slate-700',
+  };
+  const MANAGEABLE_ROLES = ['ADMIN', 'DOD', 'PATRON', 'MATRON', 'TEACHER', 'SECURITY'];
+
+  async function loadUsers(quiet = false) {
+    if (!quiet) setLoading(true);
+    try {
+      const response = await apiFetch('/users');
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.success === false) {
+        throw new Error(payload.error || `Failed to load accounts (${response.status}).`);
+      }
+      setUsers(Array.isArray(payload.users) ? payload.users : []);
+      setError('');
+    } catch (err) {
+      console.error('User role load failed:', err);
+      setError(err.message || 'Unable to load staff accounts.');
+    } finally {
+      if (!quiet) setLoading(false);
+    }
+  }
+
+  useEffect(() => { loadUsers(); }, []);
+
+  const roleSummary = useMemo(() => {
+    const counts = {};
+    for (const u of users) counts[u.role] = (counts[u.role] || 0) + 1;
+    return MANAGEABLE_ROLES.map((role) => ({
+      role,
+      count: counts[role] || 0,
+      description: ROLE_DESCRIPTIONS[role],
+      color: ROLE_COLORS[role],
+    }));
+  }, [users]);
+
+  function toggleReveal(id) {
+    setRevealed((current) => ({ ...current, [id]: !current[id] }));
+  }
+
+  function openEdit(account) {
+    setEditingId(account.id);
+    setEditForm({ full_name: account.full_name || '', role: account.role, password: '' });
+  }
+
+  async function saveEdit(id) {
+    setSavingId(id);
+    try {
+      const body = { full_name: editForm.full_name, role: editForm.role };
+      if (editForm.password) body.password = editForm.password;
+      const response = await apiFetch(`/users/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.success === false) {
+        throw new Error(payload.error || 'Account update failed.');
+      }
+      setNotice('Account credentials updated.');
+      setEditingId(null);
+      await loadUsers(true);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  async function confirmDelete() {
+    if (!deleting) return;
+    setDeleteBusy(true);
+    try {
+      const response = await apiFetch(`/users/${deleting.id}`, { method: 'DELETE' });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok || payload.success === false) {
+        throw new Error(payload.error || 'Account deletion failed.');
+      }
+      setNotice(payload.message || 'Account permanently deleted.');
+      setDeleting(null);
+      await loadUsers(true);
+    } catch (err) {
+      setError(err.message);
+      setDeleting(null);
+    } finally {
+      setDeleteBusy(false);
+    }
+  }
+
   return (
-    <Card title="User Role Management" subtitle="Review role capabilities and active assignments" icon={Users} accent="from-fuchsia-500 to-purple-600">
-      <div className="space-y-3">
-        {roles.map(({ role, users, description, color }) => (
-          <div key={role} className="flex items-center gap-4 rounded-2xl border border-slate-200 bg-white px-4 py-3">
-            <span className={`flex h-10 w-10 items-center justify-center rounded-xl text-xs font-bold text-white ${color}`}>
+    <Card
+      title="User Role Management"
+      subtitle="Live staff accounts — view credentials, manage roles, and remove accounts"
+      icon={Users}
+      accent="from-fuchsia-500 to-purple-600"
+    >
+      {error && (
+        <p role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-medium text-rose-700">{error}</p>
+      )}
+      {notice && (
+        <p role="status" className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-700">{notice}</p>
+      )}
+
+      {/* Role summary — live counts from the database */}
+      <div className="mb-5 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {roleSummary.map(({ role, count, description, color }) => (
+          <div key={role} className="flex items-center gap-3 rounded-2xl border border-slate-200 bg-white px-4 py-3">
+            <span className={`flex h-9 w-9 items-center justify-center rounded-xl text-xs font-bold text-white ${color}`}>
               {role.slice(0, 2)}
             </span>
             <div className="min-w-0 flex-1">
               <p className="text-sm font-bold text-slate-800">{role}</p>
-              <p className="text-xs text-slate-400">{description}</p>
+              <p className="truncate text-xs text-slate-400">{description}</p>
             </div>
-            <span className="rounded-full bg-indigo-50 px-3 py-1 text-xs font-semibold text-indigo-700">{users} active</span>
-            <button type="button" className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50">
-              Manage
-            </button>
+            <span className="rounded-full bg-indigo-50 px-2.5 py-1 text-xs font-semibold text-indigo-700">{count}</span>
           </div>
         ))}
       </div>
+
+      {/* Account table with credentials + delete */}
+      <div className="mb-3 flex items-center justify-between">
+        <h4 className="text-sm font-bold text-slate-800">Staff accounts ({users.length})</h4>
+        <button type="button" onClick={() => loadUsers()} className="inline-flex items-center gap-1.5 rounded-xl border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-100">
+          <RefreshCw size={13} className={loading ? 'animate-spin' : ''} /> Refresh
+        </button>
+      </div>
+
+      {loading ? (
+        <div className="space-y-2">
+          {[...Array(4)].map((_, i) => <div key={i} className="h-14 animate-pulse rounded-2xl bg-slate-100" />)}
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {users.map((account) => (
+            <div key={account.id} className="rounded-2xl border border-slate-200 bg-white px-4 py-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className={`flex h-10 w-10 items-center justify-center rounded-xl text-xs font-bold text-white ${ROLE_COLORS[account.role] || 'bg-slate-600'}`}>
+                  {(account.full_name || account.username || '?').slice(0, 2).toUpperCase()}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-bold text-slate-800">{account.full_name || account.username}</p>
+                  <div className="mt-0.5 flex flex-wrap items-center gap-2">
+                    <span className="font-mono text-xs text-slate-600">
+                      {revealed[account.id] ? account.username : '••••••••'}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => toggleReveal(account.id)}
+                      aria-label={revealed[account.id] ? 'Hide username' : 'Show username'}
+                      className="inline-flex items-center gap-1 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 transition hover:bg-slate-200"
+                    >
+                      {revealed[account.id] ? <EyeOff size={11} /> : <Eye size={11} />}
+                      {revealed[account.id] ? 'Hide' : 'Show'}
+                    </button>
+                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-bold text-white ${ROLE_COLORS[account.role] || 'bg-slate-600'}`}>
+                      {account.role}
+                    </span>
+                    {!account.is_active && (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-700">INACTIVE</span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  {editingId === account.id ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => saveEdit(account.id)}
+                        disabled={savingId === account.id}
+                        className="inline-flex items-center gap-1 rounded-xl bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white transition hover:bg-indigo-700 disabled:opacity-60"
+                      >
+                        {savingId === account.id ? <Loader2 size={13} className="animate-spin" /> : <Check size={13} />} Save
+                      </button>
+                      <button type="button" onClick={() => setEditingId(null)} className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:bg-slate-50">
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => openEdit(account)}
+                        className="rounded-xl border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 transition hover:border-indigo-200 hover:text-indigo-600"
+                      >
+                        Manage
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeleting(account)}
+                        disabled={Number(account.id) === Number(user?.id)}
+                        title={Number(account.id) === Number(user?.id) ? 'You cannot delete your own account' : 'Delete account'}
+                        className="inline-flex items-center gap-1 rounded-xl border border-rose-200 bg-rose-50 px-3 py-1.5 text-xs font-semibold text-rose-600 transition hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        <Trash2 size={13} /> Delete
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {editingId === account.id && (
+                <div className="mt-3 grid gap-3 border-t border-slate-100 pt-3 sm:grid-cols-3">
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-700">Full name</span>
+                    <input
+                      className={`${inputClass} mt-1 font-bold text-slate-900`}
+                      value={editForm.full_name}
+                      onChange={(e) => setEditForm((f) => ({ ...f, full_name: e.target.value }))}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-700">Role</span>
+                    <select
+                      className={`${inputClass} mt-1 font-bold text-slate-900`}
+                      value={editForm.role}
+                      onChange={(e) => setEditForm((f) => ({ ...f, role: e.target.value }))}
+                    >
+                      {MANAGEABLE_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+                    </select>
+                  </label>
+                  <label className="block">
+                    <span className="text-xs font-semibold text-slate-700">New password (optional)</span>
+                    <input
+                      type="password"
+                      className={`${inputClass} mt-1 font-bold text-slate-900`}
+                      placeholder="Leave blank to keep current"
+                      value={editForm.password}
+                      onChange={(e) => setEditForm((f) => ({ ...f, password: e.target.value }))}
+                    />
+                    {editForm.password && (
+                      <span className="mt-1 block text-[10px] text-slate-400">Must be 12–72 characters.</span>
+                    )}
+                  </label>
+                </div>
+              )}
+            </div>
+          ))}
+          {users.length === 0 && (
+            <p className="rounded-2xl bg-slate-50 px-4 py-8 text-center text-sm text-slate-400">No staff accounts found.</p>
+          )}
+        </div>
+      )}
+
+      {/* Delete confirmation modal */}
+      {deleting && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="mb-3 flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-100 text-rose-600">
+                <Trash2 size={22} />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-slate-900">Delete staff account?</h3>
+                <p className="text-xs text-slate-500">This action is permanent and cannot be undone.</p>
+              </div>
+              <button type="button" onClick={() => setDeleting(null)} aria-label="Close" className="ml-auto rounded-full bg-slate-100 p-2 text-slate-500 hover:bg-slate-200">
+                <X size={16} />
+              </button>
+            </div>
+            <p className="rounded-2xl bg-slate-50 px-4 py-3 text-sm text-slate-600">
+              You are about to permanently delete the account
+              <span className="font-bold text-slate-900"> {deleting.full_name || deleting.username}</span>
+              {' '}(<span className="font-semibold">{deleting.role}</span> · username:
+              <span className="font-mono"> {deleting.username}</span>).
+              All active sessions will be revoked immediately.
+            </p>
+            <div className="mt-5 flex justify-end gap-3">
+              <button type="button" onClick={() => setDeleting(null)} disabled={deleteBusy} className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50">
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={confirmDelete}
+                disabled={deleteBusy}
+                className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-rose-500/30 transition hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {deleteBusy ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+                {deleteBusy ? 'Deleting…' : 'Delete permanently'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </Card>
   );
 }

@@ -23,7 +23,7 @@ router.get('/schedules', async (req, res, next) => {
 });
 
 // ==========================================
-// 🔔 POST /api/bell/schedules — create a bell event
+// 🔔 POST /api/bell/schedules — create a bell event (ADMIN only, enforced by server.js)
 // ==========================================
 router.post('/schedules', async (req, res, next) => {
   try {
@@ -50,7 +50,7 @@ router.post('/schedules', async (req, res, next) => {
 });
 
 // ==========================================
-// 🔔 PUT /api/bell/schedules/:id — update a bell event
+// 🔔 PUT /api/bell/schedules/:id — update a bell event (ADMIN only, enforced by server.js)
 // ==========================================
 router.put('/schedules/:id', async (req, res, next) => {
   try {
@@ -87,7 +87,7 @@ router.put('/schedules/:id', async (req, res, next) => {
 });
 
 // ==========================================
-// 🔔 DELETE /api/bell/schedules/:id — remove a bell event
+// 🔔 DELETE /api/bell/schedules/:id — remove a bell event (ADMIN only, enforced by server.js)
 // ==========================================
 router.delete('/schedules/:id', async (req, res, next) => {
   try {
@@ -152,7 +152,8 @@ router.post('/device/heartbeat', async (req, res, next) => {
 });
 
 // ==========================================
-// 🔔 POST /api/bell/trigger — manual override (ring the bell now)
+// 🔔 POST /api/bell/trigger — manual override / emergency ring
+// Any authenticated staff role may trigger; schedule configuration stays ADMIN-only.
 // ==========================================
 router.post('/trigger', async (req, res, next) => {
   try {

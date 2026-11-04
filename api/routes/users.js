@@ -155,4 +155,56 @@ router.patch('/:id/status', async (req, res) => {
   }
 });
 
+/**
+ * DELETE /api/users/:id
+ * Permanently remove a staff account from the database.
+ * - Admins cannot delete their own account while signed in.
+ * - All active sessions for the deleted account are revoked first.
+ */
+router.delete('/:id', async (req, res) => {
+  const { id } = req.params;
+
+  if (Number(id) === Number(req.user.id)) {
+    return res.status(400).json({
+      success: false,
+      error: 'You cannot delete your own account while signed in. Ask another administrator to remove it.',
+    });
+  }
+
+  try {
+    const existing = await pool.query(
+      'SELECT id, username, full_name, role FROM users WHERE id = $1;',
+      [id]
+    );
+    if (existing.rowCount === 0) {
+      return res.status(404).json({ success: false, error: 'User account not found.' });
+    }
+
+    const target = existing.rows[0];
+
+    // Keep at least one active administrator in the system.
+    if (target.role === 'ADMIN') {
+      const admins = await pool.query(
+        `SELECT COUNT(*)::INT AS count FROM users WHERE role = 'ADMIN' AND is_active = TRUE;`
+      );
+      if (Number(admins.rows[0]?.count) <= 1) {
+        return res.status(400).json({
+          success: false,
+          error: 'Cannot delete the last active administrator account.',
+        });
+      }
+    }
+
+    // Revoke every live session before the account disappears.
+    await pool.query('UPDATE user_sessions SET revoked_at = CURRENT_TIMESTAMP WHERE user_id = $1 AND revoked_at IS NULL', [id]);
+
+    await pool.query('DELETE FROM users WHERE id = $1;', [id]);
+
+    return res.json({ success: true, message: `Account for ${target.full_name || target.username} permanently deleted.` });
+  } catch (err) {
+    console.error('[USERS_DELETE_ERROR]', err);
+    return res.status(500).json({ success: false, error: 'Unable to delete the account. It may still be referenced by other records.' });
+  }
+});
+
 module.exports = router;

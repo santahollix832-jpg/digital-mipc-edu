@@ -397,7 +397,21 @@ app.use('/api/attendance', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD'), att
 app.use('/api/transport', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD', 'SECURITY'), transportRouter);
 
 // Connect IoT smart bell module route
-app.use('/api/bell', requireRoles('ADMIN'), bellRouter);
+// Read access (schedules, device health, ring log) is open to every authenticated
+// staff role; schedule modification (create/update/delete) stays ADMIN-only.
+const BELL_STAFF_ROLES = ['ADMIN', 'TEACHER', 'PATRON', 'MATRON', 'DOD', 'SECURITY'];
+app.use('/api/bell', requireRoles(...BELL_STAFF_ROLES), (req, res, next) => {
+  // Any staff role may read bell data and trigger the emergency bell.
+  // Schedule configuration (create/update/delete) stays strictly ADMIN-only.
+  const isScheduleMutation = /^\/schedules/.test(req.path || '/') && req.method !== 'GET';
+  if (isScheduleMutation && req.user?.role !== 'ADMIN') {
+    return res.status(403).json({
+      success: false,
+      error: 'Only administrators can create, update, or delete bell schedules.',
+    });
+  }
+  return next();
+}, bellRouter);
 
 // ==========================================
 // 🌟 1. STUDENTS MODULE (CRUD)
