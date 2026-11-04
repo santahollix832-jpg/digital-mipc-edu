@@ -219,9 +219,13 @@ function Attendance() {
   function normalizeScanValue(rawValue) {
     const value = String(rawValue || '').trim();
     if (!value) return '';
+    // Generated QR badges embed a JSON payload:
+    // { reg_number, id, full_name, class } — extract the best identifier.
     try {
       const parsed = JSON.parse(value);
-      return String(parsed.student_id || parsed.reg_number || parsed.card_uid || parsed.id || parsed.name || '').trim();
+      return String(
+        parsed.reg_number || parsed.student_id || parsed.card_uid || parsed.id || parsed.full_name || parsed.name || ''
+      ).trim();
     } catch {
       return value;
     }

@@ -1,11 +1,26 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { BadgeCheck, BedDouble, ChevronLeft, ChevronRight, PencilLine, Plus, Search, Sparkles, Sun, Trash2, UserRound, UsersRound, X } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
+import { BadgeCheck, BedDouble, ChevronLeft, ChevronRight, PencilLine, Plus, Printer, QrCode, Download, Search, Sparkles, Sun, Trash2, UserRound, UsersRound, X } from 'lucide-react';
 import { apiFetch, assetUrl } from '../api/config';
 import { useToast } from './ToastProvider';
 import './Students.css';
 
 const PAGE_SIZE = 7;
 const TRANSPORT_ROUTES = ['Kigali', 'Rubavu', 'Huye', 'Muhanga', 'Parent Pick-Up'];
+
+/**
+ * Standardized QR payload for every student — used by the ID badge generator
+ * here and parsed by the Attendance / Gate scanners.
+ * Embeds reg_number, database id, and full name.
+ */
+function buildStudentQrPayload(student) {
+  return JSON.stringify({
+    reg_number: student.reg_number || '',
+    id: student.id,
+    full_name: student.name || '',
+    class: student.class_name || '',
+  });
+}
 const emptyForm = {
   id: null,
   name: '',
@@ -20,6 +35,108 @@ const emptyForm = {
   photo_file: null,
 };
 
+/**
+ * Printable student ID badge with a live QR code.
+ * The QR payload embeds reg_number + database id + full name, matching what
+ * the Attendance / Gate scanners expect.
+ */
+function QrBadgeCard({ student }) {
+  const badgeRef = useRef(null);
+  const payload = buildStudentQrPayload(student);
+
+  function downloadQr() {
+    const canvas = badgeRef.current?.querySelector('canvas');
+    const svg = badgeRef.current?.querySelector('svg');
+    let dataUrl = '';
+    if (canvas) {
+      dataUrl = canvas.toDataURL('image/png');
+    } else if (svg) {
+      const xml = new XMLSerializer().serializeToString(svg);
+      dataUrl = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(xml)))}`;
+    }
+    if (!dataUrl) return;
+    const link = document.createElement('a');
+    link.href = dataUrl;
+    link.download = `mipc-qr-${student.reg_number || student.id}.png`;
+    link.click();
+  }
+
+  return (
+    <div>
+      <div
+        ref={badgeRef}
+        className="mx-auto w-full max-w-[300px] rounded-2xl border-2 border-indigo-100 bg-white p-5 text-center"
+      >
+        <p className="text-[10px] font-bold uppercase tracking-[0.25em] text-indigo-600">Digital MIPC EDU</p>
+        <p className="mt-0.5 text-xs font-semibold text-slate-400">Student Identification</p>
+        <div className="mt-3 flex justify-center [&_svg]:h-40 [&_svg]:w-40">
+          <QRCodeSVG value={payload} size={160} level="M" includeMargin />
+        </div>
+        <h3 className="mt-3 text-base font-extrabold text-slate-900">{student.name}</h3>
+        <p className="mt-0.5 font-mono text-sm font-bold text-indigo-700">{student.reg_number}</p>
+        <p className="mt-0.5 text-xs font-medium text-slate-500">{student.class_name}</p>
+      </div>
+      <div className="mt-4 grid grid-cols-2 gap-3">
+        <button
+          type="button"
+          onClick={downloadQr}
+          className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:border-indigo-200 hover:text-indigo-600"
+        >
+          <Download size={15} /> Download QR
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const printWindow = window.open('', '_blank', 'width=420,height=600');
+            if (!printWindow) return;
+            printWindow.document.write(`
+              <html><head><title>MIPC ID — ${student.name}</title>
+              <style>body{font-family:system-ui,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0;}
+              .badge{border:2px solid #6366f1;border-radius:16px;padding:24px;text-align:center;max-width:300px;}
+              .kicker{font-size:10px;letter-spacing:3px;color:#4f46e5;font-weight:800;text-transform:uppercase;}
+              .name{font-size:18px;font-weight:800;color:#0f172a;margin:10px 0 2px;} .reg{font-family:monospace;font-weight:700;color:#4338ca;}
+              .cls{color:#64748b;font-size:12px;}</style></head>
+              <body><div class="badge" id="b"></div>
+              <script>
+                const svgData = ${JSON.stringify(new XMLSerializer !== 'undefined' ? '' : '')};
+                document.currentScript.remove();
+              </script>
+              </body></html>`
+            );
+            printWindow.document.close();
+            // Render the QR inside the print window via a data URL snapshot.
+            const svg = badgeRef.current?.querySelector('svg');
+            if (svg) {
+              const xml = new XMLSerializer().serializeToString(svg);
+              const img = printWindow.document.createElement('img');
+              img.src = `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(xml)))}`;
+              img.width = 160; img.height = 160;
+              printWindow.document.getElementById('b').innerHTML =
+                `<div class="kicker">Digital MIPC EDU</div><div style="font-size:11px;color:#94a3b8;font-weight:600;">Student Identification</div>`;
+              printWindow.document.getElementById('b').appendChild(img);
+              const name = printWindow.document.createElement('div');
+              name.className = 'name'; name.textContent = student.name;
+              const reg = printWindow.document.createElement('div');
+              reg.className = 'reg'; reg.textContent = student.reg_number;
+              const cls = printWindow.document.createElement('div');
+              cls.className = 'cls'; cls.textContent = student.class_name || '';
+              printWindow.document.getElementById('b').append(name, reg, cls);
+              printWindow.focus();
+              printWindow.print();
+            }
+          }}
+          className="inline-flex items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-indigo-500"
+        >
+          <Printer size={15} /> Print badge
+        </button>
+      </div>
+      <p className="mt-3 text-center text-xs text-slate-400">
+        Scanning this QR records attendance instantly — it embeds the registration number, student ID, and full name.
+      </p>
+    </div>
+  );
+}
+
 function Students() {
   const { notify } = useToast();
   const [students, setStudents] = useState([]);
@@ -33,6 +150,7 @@ function Students() {
   const [saving, setSaving] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [deleteStudent, setDeleteStudent] = useState(null);
+  const [qrStudent, setQrStudent] = useState(null);
   const [conduitByStudent, setConduitByStudent] = useState({});
 
   useEffect(() => {
@@ -246,6 +364,14 @@ function Students() {
           photo_url: student.photo_url || '',
         }, ...current]);
         notify('New student added to the directory.', 'success');
+        // Auto-generate + show the QR ID badge immediately after creation.
+        setQrStudent({
+          id: student.id,
+          name: student.name || form.name,
+          reg_number: student.reg_number || form.reg_number,
+          class_name: student.class_name || form.class_name,
+          photo_url: student.photo_url || '',
+        });
       }
 
       setIsModalOpen(false);
@@ -463,6 +589,15 @@ function Students() {
                           aria-label={`Edit ${student.name}`}
                         >
                           <PencilLine size={14} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setQrStudent(student)}
+                          className="rounded-lg border border-slate-200 bg-white p-2 text-slate-700 transition hover:border-indigo-200 hover:text-indigo-600"
+                          aria-label={`Show QR badge for ${student.name}`}
+                          title="QR ID badge"
+                        >
+                          <QrCode size={14} />
                         </button>
                         <button
                           type="button"
@@ -775,6 +910,23 @@ function Students() {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {qrStudent && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-950/30 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-3xl bg-white p-6 shadow-2xl">
+            <div className="mb-4 flex items-center justify-between">
+              <div>
+                <p className="text-sm font-semibold uppercase tracking-[0.18em] text-indigo-600">Student ID badge</p>
+                <h2 className="mt-1 text-lg font-bold text-slate-900">Scannable QR code</h2>
+              </div>
+              <button type="button" onClick={() => setQrStudent(null)} className="rounded-full bg-slate-100 p-2 text-slate-600 transition hover:bg-slate-200" aria-label="Close QR badge">
+                <X size={18} />
+              </button>
+            </div>
+            <QrBadgeCard student={qrStudent} />
           </div>
         </div>
       )}
