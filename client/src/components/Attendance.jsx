@@ -50,6 +50,7 @@ function Attendance() {
   const [cameraActive, setCameraActive] = useState(false);
   const [draft, setDraft] = useState({});
   const cameraVideoRef = useRef(null);
+  const manualScanInputRef = useRef(null);
   const cameraStreamRef = useRef(null);
   const cameraFrameRef = useRef(null);
   const nfcAbortControllerRef = useRef(null);
@@ -220,16 +221,54 @@ function Attendance() {
     if (!value) return '';
     try {
       const parsed = JSON.parse(value);
-      return String(parsed.student_id || parsed.reg_number || parsed.card_uid || parsed.id || '').trim();
+      return String(parsed.student_id || parsed.reg_number || parsed.card_uid || parsed.id || parsed.name || '').trim();
     } catch {
       return value;
     }
   }
 
+  // Resolve a typed/scanned value against the local student list first so we can
+  // send a precise student_id to the backend (names, partial names, and reg
+  // numbers all resolve cleanly — no backend Validation Errors).
+  function resolveStudentIdentifier(rawValue) {
+    const identifier = normalizeScanValue(rawValue);
+    if (!identifier) return { identifier: '', studentId: null, resolvedName: '' };
+
+    const details = summary?.details || [];
+    const lowered = identifier.toLowerCase();
+
+    // 1. Exact registration number match (case-insensitive).
+    const byReg = details.find((s) => String(s.reg_number || '').trim().toLowerCase() === lowered);
+    if (byReg) return { identifier: byReg.reg_number || identifier, studentId: byReg.id, resolvedName: byReg.name };
+
+    // 2. Numeric value that matches a student ID.
+    if (/^\d+$/.test(identifier)) {
+      const byId = details.find((s) => String(s.id) === identifier);
+      if (byId) return { identifier: byId.reg_number || identifier, studentId: byId.id, resolvedName: byId.name };
+    }
+
+    // 3. Exact name match, then unique partial name match.
+    const byNameExact = details.find((s) => String(s.name || '').trim().toLowerCase() === lowered);
+    if (byNameExact) return { identifier: byNameExact.reg_number || identifier, studentId: byNameExact.id, resolvedName: byNameExact.name };
+    const partialMatches = details.filter((s) => String(s.name || '').toLowerCase().includes(lowered));
+    if (partialMatches.length === 1) {
+      return { identifier: partialMatches[0].reg_number || identifier, studentId: partialMatches[0].id, resolvedName: partialMatches[0].name };
+    }
+
+    // No local match — pass the raw value through; the backend also matches
+    // names, reg numbers and smart-card UIDs.
+    return { identifier, studentId: null, resolvedName: '' };
+  }
+
   async function recordScan(rawValue, method) {
-    const studentIdentifier = normalizeScanValue(rawValue);
+    const { identifier: studentIdentifier, studentId, resolvedName } = resolveStudentIdentifier(rawValue);
     const lastScanAt = recentScansRef.current.get(studentIdentifier) || 0;
-    if (!studentIdentifier || scanBusyRef.current || Date.now() - lastScanAt < 2000) return;
+    if (!studentIdentifier) {
+      setScanMessage('Type or scan a registration number, student ID, or student name first.');
+      notify('Please scan or type registration number manually', 'warning');
+      return;
+    }
+    if (scanBusyRef.current || Date.now() - lastScanAt < 2000) return;
     if (recentScansRef.current.size > 100) {
       for (const [identifier, scannedAt] of recentScansRef.current) {
         if (Date.now() - scannedAt > 10000) recentScansRef.current.delete(identifier);
@@ -242,13 +281,13 @@ function Attendance() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          student_identifier: studentIdentifier,
-          check_in_method: method,
+          ...(studentId ? { student_id: studentId } : { student_identifier: studentIdentifier }),
+          check_in_method: method === 'MANUAL' ? 'MANUAL' : method,
           device_id: `MIPC-${method}-SCANNER`,
           date: selectedDate,
         }),
       });
-      const payload = await response.json();
+      const payload = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(payload.error || payload.message || 'Attendance scan failed.');
       await loadSummary();
       const actionLabel = payload.data?.action === 'exit' ? 'exit' : 'entry';
@@ -256,9 +295,9 @@ function Attendance() {
       const recordedTime = recordedAt
         ? new Date(recordedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
         : 'now';
-      setScanMessage(`${payload.data?.student_name || studentIdentifier}: ${actionLabel} recorded at ${recordedTime}.`);
+      setScanMessage(`${payload.data?.student_name || resolvedName || studentIdentifier}: ${actionLabel} recorded at ${recordedTime}.`);
       setScanValue('');
-      notify(`${payload.data?.student_name || 'Student'} ${actionLabel} recorded.`, 'success');
+      notify(`${payload.data?.student_name || resolvedName || 'Student'} ${actionLabel} recorded.`, 'success');
     } catch (error) {
       console.error('Attendance scan failed:', error);
       setScanMessage(error.message || 'Attendance scan failed.');
@@ -268,13 +307,23 @@ function Attendance() {
     }
   }
 
+  function focusManualScan() {
+    notify('Please scan or type registration number manually', 'warning');
+    setScanMessage('Enter the registration number, student ID, or student name in the manual scan box, then press “Record scan”. A USB barcode scanner also types directly into it.');
+    window.setTimeout(() => {
+      manualScanInputRef.current?.focus();
+      manualScanInputRef.current?.select();
+    }, 60);
+  }
+
   async function startCameraScanner() {
     if (!navigator.mediaDevices?.getUserMedia || !('BarcodeDetector' in window)) {
-      setScanMessage('QR camera scanning is not supported in this browser. Type the registration number in the manual scan box instead — it works everywhere.');
+      notify('QR camera scanning is not supported in this browser.', 'warning');
+      focusManualScan();
       return;
     }
     try {
-      const detector = new window.BarcodeDetector({ formats: ['qr_code'] });
+      const detector = new window.BarcodeDetector({ formats: ['qr_code', 'code_128', 'code_39', 'ean_13'] });
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
       cameraStreamRef.current = stream;
       if (cameraVideoRef.current) {
@@ -288,12 +337,15 @@ function Attendance() {
         try {
           const codes = await detector.detect(cameraVideoRef.current);
           if (codes.length && codes[0].rawValue) {
+            stopCameraScanner();
             await recordScan(codes[0].rawValue, 'QR');
+            return;
           }
         } catch (error) {
           console.error('QR detection failed:', error);
           stopCameraScanner();
-          setScanMessage('Could not read a QR code from the camera stream.');
+          notify('Could not read a code from the camera stream.', 'error');
+          focusManualScan();
           return;
         }
         cameraFrameRef.current = requestAnimationFrame(scanFrame);
@@ -302,13 +354,21 @@ function Attendance() {
     } catch (error) {
       stopCameraScanner();
       console.error('QR camera access failed:', error);
-      notify(error.message || 'Unable to start the QR camera scanner.', 'error');
+      const denied = error?.name === 'NotAllowedError';
+      notify(
+        denied
+          ? 'Camera access was blocked. Please scan or type registration number manually.'
+          : 'Unable to start the camera. Please scan or type registration number manually.',
+        'warning'
+      );
+      focusManualScan();
     }
   }
 
   async function startNfcScanner() {
     if (!('NDEFReader' in window)) {
-      setScanMessage('Web NFC is not supported in this browser. Type the registration number in the manual scan box, or use a USB/NFC keyboard-wedge reader — it types straight into the box.');
+      notify('Web NFC is not supported in this browser.', 'warning');
+      focusManualScan();
       return;
     }
     try {
@@ -330,8 +390,16 @@ function Attendance() {
       setScanMessage('NFC reader ready. Tap a student tag to record entry or exit.');
     } catch (error) {
       if (error.name === 'AbortError') return;
+      stopCameraScanner();
       console.error('NFC scan could not start:', error);
-      notify(error.message || 'Unable to start NFC scanning. Check browser support and permissions.', 'error');
+      const denied = error?.name === 'NotAllowedError';
+      notify(
+        denied
+          ? 'NFC permission was denied. Please scan or type registration number manually.'
+          : 'Unable to start NFC scanning. Please scan or type registration number manually.',
+        'warning'
+      );
+      focusManualScan();
     }
   }
 
@@ -575,7 +643,7 @@ function Attendance() {
                   type="search"
                   value={modalSearch}
                   onChange={(event) => setModalSearch(event.target.value)}
-                  placeholder="Search student by name or reg number…"
+                  placeholder="Search or type a name/reg number to filter & highlight"
                   aria-label="Search students in this list"
                   className="w-full flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 shadow-sm outline-none transition placeholder:font-medium placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
                 />
@@ -591,10 +659,12 @@ function Attendance() {
               </div>
               <form onSubmit={submitManualScan} className="flex flex-col gap-2 sm:flex-row">
                 <input
+                  ref={manualScanInputRef}
                   value={scanValue}
                   onChange={(event) => setScanValue(event.target.value)}
-                  placeholder="Scan or enter student ID / registration number"
-                  aria-label="Student QR or NFC identifier"
+                  placeholder="Scan or type registration number, student ID, or student name"
+                  aria-label="Student QR, NFC, or name identifier"
+                  autoComplete="off"
                           disabled={!canScanLive}
                           className="min-w-0 flex-1 rounded-xl border border-slate-300 bg-white px-3 py-2.5 text-sm font-bold text-slate-900 shadow-sm outline-none transition placeholder:font-medium placeholder:text-slate-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-200"
                         />
@@ -615,7 +685,17 @@ function Attendance() {
             </section>
             <div className="space-y-3">
               {modalStudents.map((student) => (
-                <div key={student.id} className="flex flex-col gap-3 rounded-2xl border border-slate-200 p-3 sm:flex-row sm:items-center sm:justify-between">
+                <div
+                  key={student.id}
+                  className={`flex flex-col gap-3 rounded-2xl border p-3 transition sm:flex-row sm:items-center sm:justify-between ${
+                    scanValue.trim() && (
+                      String(student.name || '').toLowerCase().includes(scanValue.trim().toLowerCase()) ||
+                      String(student.reg_number || '').toLowerCase().includes(scanValue.trim().toLowerCase())
+                    )
+                      ? 'border-indigo-400 bg-indigo-50 ring-2 ring-indigo-200'
+                      : 'border-slate-200'
+                  }`}
+                >
                   <div><p className="font-semibold text-slate-900">{student.name}</p><p className="text-xs text-slate-500">{student.reg_number || 'No registration number'} · {student.class_name}</p></div>
                   <div className="flex flex-wrap gap-2">
                     {statuses.map((status) => (

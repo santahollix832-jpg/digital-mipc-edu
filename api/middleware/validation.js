@@ -45,8 +45,9 @@ const validateScanRequest = (req, res, next) => {
     });
   }
 
-  const validMethods = ['NFC', 'QR'];
-  if (!validMethods.includes(check_in_method.toUpperCase())) {
+  const validMethods = ['NFC', 'QR', 'MANUAL'];
+  const upperMethod = typeof check_in_method === 'string' ? check_in_method.trim().toUpperCase() : '';
+  if (!validMethods.includes(upperMethod)) {
     return res.status(400).json({
       error: 'Validation Error',
       message: `check_in_method must be one of: ${validMethods.join(', ')}`,
@@ -66,8 +67,8 @@ const validateScanRequest = (req, res, next) => {
   req.validatedData = {
     student_id: student_id ? Number(student_id) : null,
     student_identifier: typeof student_identifier === 'string' ? student_identifier.trim() : null,
-    check_in_method: check_in_method.trim().toUpperCase(),
-    device_id: device_id.trim()
+    check_in_method: upperMethod,
+    device_id: typeof device_id === 'string' ? device_id.trim() : 'MIPC-MANUAL-SCANNER'
   };
 
   next();

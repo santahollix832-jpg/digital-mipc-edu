@@ -253,18 +253,29 @@ async function recordAttendanceScan(req, res) {
     }
 
     const { student_id, student_identifier, check_in_method, device_id } = req.validatedData;
+    const identifier = student_identifier;
     const studentResult = await client.query(
-      `SELECT s.id, s.name
+      `SELECT s.id, s.name, s.reg_number
        FROM students s
        LEFT JOIN smart_cards sc ON sc.student_id = s.id AND sc.is_active = TRUE
        WHERE ($1::int IS NOT NULL AND s.id = $1)
-          OR ($2::text IS NOT NULL AND (s.reg_number = $2 OR sc.card_uid = $2))
-       ORDER BY s.id
+          OR ($2::text IS NOT NULL AND (s.reg_number = $2 OR sc.card_uid = $2
+              OR LOWER(s.name) = LOWER($2)))
+          OR ($3::text IS NOT NULL AND (LOWER(s.name) LIKE LOWER($3)
+              OR LOWER(s.reg_number) LIKE LOWER($3)))
+       ORDER BY (CASE WHEN $2::text IS NOT NULL AND (s.reg_number = $2 OR sc.card_uid = $2) THEN 0
+                      WHEN $3::text IS NOT NULL THEN 1 ELSE 2 END),
+                s.id
        LIMIT 1;`,
-      [student_id, student_identifier]
+      [student_id, identifier, identifier ? `%${identifier}%` : null]
     );
     if (!studentResult.rowCount) {
-      return res.status(404).json({ success: false, error: 'Student not found.' });
+      return res.status(404).json({
+        success: false,
+        error: identifier
+          ? `No student matches "${identifier}". Check the registration number or name and try again.`
+          : 'Student not found.',
+      });
     }
 
     const matchedStudent = studentResult.rows[0];
