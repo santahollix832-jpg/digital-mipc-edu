@@ -25,7 +25,7 @@ import { apiFetch } from '../api/config';
 import RouteMapModal from './RouteMapModal';
 
 const STATUS_OPTIONS = ['In Transit', 'Delayed', 'Completed'];
-const ROUTES = ['Kigali', 'Rubavu', 'Huye', 'Muhanga'];
+const ROUTES = ['Kigali', 'Rubavu', 'Musanze', 'Parent Pick-Up'];
 const PAYMENT_OPTIONS = ['Fully Paid', 'Partial Payment', 'Unpaid'];
 
 const PAYMENT_BADGE = {
@@ -546,7 +546,7 @@ return (
         <div className="grid gap-4 p-4 md:p-6 md:grid-cols-2">
           {routeGroups.length === 0 && (
             <p className="col-span-full rounded-xl border border-slate-200 bg-slate-50 px-4 py-8 text-center text-sm text-slate-500">
-              No buses assigned to Musanze routes yet. Add buses whose route matches Kigali, Rubavu, Huye or Muhanga.
+              No buses assigned yet. Add buses whose route matches Kigali, Rubavu, Musanze or Parent Pick-Up.
             </p>
           )}
           {routeGroups.map(({ route, buses: groupBuses }) => (

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { BrowserRouter, Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth/AuthContext';
+import { LanguageProvider } from './context/LanguageContext';
 import LoginForm from './components/auth/LoginForm';
 import RegisterForm from './components/auth/RegisterForm';
 import ProtectedRoute from './components/auth/ProtectedRoute';
@@ -11,6 +12,8 @@ import Attendance from './components/Attendance';
 import Sidebar from './components/Sidebar';
 import GateReturnTracking from './components/GateReturnTracking';
 import TransportTracking from './components/TransportTracking';
+import TransportManagement from './components/transport/TransportManagement';
+import SMSNotificationsDashboard from './components/sms/SMSNotificationsDashboard';
 import SmartBell from './components/SmartBell';
 import Settings from './components/Settings';
 import RoleDashboard from './components/RoleDashboard';
@@ -156,8 +159,9 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <ThemeProviderWrapper>
-          <ToastProvider>
+        <LanguageProvider>
+          <ThemeProviderWrapper>
+            <ToastProvider>
           <Routes>
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterRoute />} />
@@ -166,9 +170,10 @@ function App() {
                 <AuthenticatedApp />
               </ProtectedRoute>
             } />
-          </Routes>
+                    </Routes>
         </ToastProvider>
         </ThemeProviderWrapper>
+        </LanguageProvider>
       </AuthProvider>
     </BrowserRouter>
   );
@@ -237,7 +242,12 @@ function AuthenticatedApp() {
             } />
             <Route path="/transport/*" element={
               <ProtectedRoute roles={['ADMIN', 'PATRON', 'MATRON', 'DOD', 'SECURITY']}>
-                <TransportTracking />
+                <TransportManagement />
+              </ProtectedRoute>
+            } />
+            <Route path="/sms/*" element={
+              <ProtectedRoute roles={['ADMIN', 'PATRON', 'MATRON', 'DOD', 'TEACHER', 'BURSAR', 'SECURITY']}>
+                <SMSNotificationsDashboard />
               </ProtectedRoute>
             } />
             <Route path="/settings/*" element={

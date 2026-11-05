@@ -70,6 +70,13 @@ router.post('/buses', async (req, res, next) => {
       });
     }
 
+    if (!isAllowedRoute(route_name)) {
+      return res.status(400).json({
+        success: false,
+        error: `route_name must be one of: ${ROUTES.join(', ')}.`,
+      });
+    }
+
     const finalStatus = BUS_STATUSES.includes(status) ? status : 'In Transit';
     const finalCapacity = parseInt(capacity) > 0 ? parseInt(capacity) : 50;
     const finalPassengers = Math.min(
@@ -162,6 +169,127 @@ router.delete('/buses/:id', async (req, res, next) => {
   }
 });
 
+// ==========================================
+// 🎫 STUDENT ROUTE ASSIGNMENT & TRANSFER
+// GET /api/transport/students?route=&search= — roster grouped for assignment
+// PUT /api/transport/students/:id/route      — assign / transfer between routes
+// ==========================================
+router.get('/students', async (req, res, next) => {
+  try {
+    const route = isAllowedRoute(req.query.route) ? req.query.route : null;
+    const search = (req.query.search || '').trim();
+    const params = [];
+    if (route) { params.push(route); }
+    if (search) { params.push(`%${search}%`); }
+    const routeClause = route
+      ? 's.preferred_route = $1'
+      : "s.preferred_route IN ('Kigali', 'Rubavu', 'Musanze', 'Parent Pick-Up')";
+    const searchClause = search
+      ? `AND (s.name ILIKE $${params.length} OR s.reg_number ILIKE $${params.length})`
+      : '';
+    const result = await pool.query(
+      `SELECT s.id, s.name, s.reg_number, s.class AS class_name, s.status,
+              s.preferred_route AS route, s.guardian_name, s.guardian_phone,
+              COALESCE(tb.boarded, FALSE) AS boarded,
+              COALESCE(tt.payment_status, 'Unpaid') AS payment_status
+       FROM students s
+       LEFT JOIN transport_boarding tb ON tb.student_id = s.id
+       LEFT JOIN transport_tickets tt ON tt.student_id = s.id
+       WHERE ${routeClause} ${searchClause}
+       ORDER BY s.preferred_route ASC, s.name ASC;`,
+      params
+    );
+    const counts = await pool.query(
+      `SELECT preferred_route AS route, COUNT(*)::INT AS total
+       FROM students
+       WHERE preferred_route IN ('Kigali', 'Rubavu', 'Musanze', 'Parent Pick-Up')
+       GROUP BY preferred_route;`
+    );
+    res.json({ success: true, routes: ROUTES, data: result.rows, counts: counts.rows });
+  } catch (err) {
+    console.error('TRANSPORT_STUDENTS_ERROR:', err);
+    next(err);
+  }
+});
+
+router.put('/students/:id/route', async (req, res, next) => {
+  const client = await pool.connect();
+  try {
+    const studentId = Number(req.params.id);
+    const newRoute = String(req.body?.route || '').trim();
+    if (!Number.isSafeInteger(studentId) || studentId <= 0) {
+      return res.status(400).json({ success: false, error: 'A valid student id is required.' });
+    }
+    if (!isAllowedRoute(newRoute)) {
+      return res.status(400).json({
+        success: false,
+        error: `route must be one of: ${ROUTES.join(', ')}.`,
+      });
+    }
+    await client.query('BEGIN');
+    const studentRes = await client.query('SELECT * FROM students WHERE id = $1 FOR UPDATE;', [studentId]);
+    if (!studentRes.rowCount) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, error: 'Student not found.' });
+    }
+    const student = studentRes.rows[0];
+    const previousRoute = student.preferred_route;
+    if (previousRoute === newRoute) {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ success: false, error: `Student is already assigned to ${newRoute}.` });
+    }
+
+    await client.query('UPDATE students SET preferred_route = $1 WHERE id = $2;', [newRoute, studentId]);
+
+    if (newRoute === 'Parent Pick-Up') {
+      // Moving to Parent Pick-Up: register for guardian collection, drop bus tickets.
+      await client.query(
+        `INSERT INTO parent_pickup_register (student_id, parent_name, parent_phone)
+         VALUES ($1, COALESCE(NULLIF($2, ''), $3), COALESCE($4, ''))
+         ON CONFLICT (student_id) DO UPDATE
+           SET parent_name = COALESCE(NULLIF(EXCLUDED.parent_name, ''), parent_pickup_register.parent_name),
+               parent_phone = COALESCE(EXCLUDED.parent_phone, parent_pickup_register.parent_phone);`,
+        [studentId, student.guardian_name || '', student.guardian_email || '', student.guardian_phone]
+      );
+      await client.query('DELETE FROM transport_boarding WHERE student_id = $1;', [studentId]);
+      await client.query('DELETE FROM transport_tickets WHERE student_id = $1;', [studentId]);
+    } else {
+      // Bus route: keep boarding + ticket rows in sync with the new route.
+      await client.query(
+        `INSERT INTO transport_boarding (student_id, route, boarded, boarded_at, boarded_by)
+         VALUES ($1, $2, FALSE, NULL, '')
+         ON CONFLICT (student_id) DO UPDATE
+           SET route = EXCLUDED.route,
+               boarded = FALSE,
+               boarded_at = NULL,
+               boarded_by = '',
+               updated_at = CURRENT_TIMESTAMP;`,
+        [studentId, newRoute]
+      );
+      await client.query(
+        `INSERT INTO transport_tickets (student_id, route, payment_status)
+         VALUES ($1, $2, 'Unpaid')
+         ON CONFLICT (student_id) DO UPDATE SET route = EXCLUDED.route, updated_at = CURRENT_TIMESTAMP;`,
+        [studentId, newRoute]
+      );
+      await client.query('DELETE FROM parent_pickup_register WHERE student_id = $1;', [studentId]);
+    }
+
+    await client.query('COMMIT');
+    res.json({
+      success: true,
+      message: `${student.name} transferred from ${previousRoute} to ${newRoute}.`,
+      transfer: { student_id: studentId, student_name: student.name, from: previousRoute, to: newRoute },
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('TRANSPORT_ROUTE_TRANSFER_ERROR:', err);
+    next(err);
+  } finally {
+    client.release();
+  }
+});
+
 module.exports = router;
 // NOTE: module.exports above intentionally appears twice — this second block
 // adds the Musanze Hub advanced endpoints below it (moving it would drop them).
@@ -170,7 +298,14 @@ module.exports = router;
 //    Ticketing, Parent Pick-Up register
 // ==========================================
 
-const ROUTES = ['Kigali', 'Rubavu', 'Huye', 'Muhanga', 'Parent Pick-Up'];
+// Allowed transport routes (locked down): the three official travel hubs
+// plus the Parent Pick-Up register for day students collected by guardians.
+const ROUTES = ['Kigali', 'Rubavu', 'Musanze', 'Parent Pick-Up'];
+const SQL_ROUTES = ['Kigali', 'Rubavu', 'Musanze'];
+
+function isAllowedRoute(route) {
+  return ROUTES.includes(route);
+}
 
 // Helper: ensure boarding/ticket rows exist for every Boarding student whose
 // destination is a real bus route (auto-registration from student profiles).
@@ -179,7 +314,7 @@ async function syncBoardingRegistrations() {
     INSERT INTO transport_boarding (student_id, route)
     SELECT s.id, s.preferred_route
     FROM students s
-    WHERE s.status = 'Boarding' AND s.preferred_route IN ('Kigali', 'Rubavu', 'Huye', 'Muhanga')
+    WHERE s.status = 'Boarding' AND s.preferred_route IN ('Kigali', 'Rubavu', 'Musanze')
     ON CONFLICT (student_id) DO UPDATE SET route = EXCLUDED.route
       WHERE transport_boarding.route IS DISTINCT FROM EXCLUDED.route;
   `);
@@ -187,7 +322,7 @@ async function syncBoardingRegistrations() {
     INSERT INTO transport_tickets (student_id, route, payment_status)
     SELECT s.id, s.preferred_route, 'Unpaid'
     FROM students s
-    WHERE s.status = 'Boarding' AND s.preferred_route IN ('Kigali', 'Rubavu', 'Huye', 'Muhanga')
+    WHERE s.status = 'Boarding' AND s.preferred_route IN ('Kigali', 'Rubavu', 'Musanze')
     ON CONFLICT (student_id) DO UPDATE SET route = EXCLUDED.route
       WHERE transport_tickets.route IS DISTINCT FROM EXCLUDED.route;
   `);
@@ -211,7 +346,7 @@ async function syncBoardingRegistrations() {
 // NOTE: module.exports is declared at the END of this file, AFTER the Musanze Hub
 // routes below — moving it up would silently drop those endpoints.
 
-// GET /api/transport/manifest?route=Kigali â€” grouped call-up list, prioritized by payment
+// GET /api/transport/manifest?route=Kigali — grouped call-up list, prioritized by payment
 router.get('/manifest', async (req, res, next) => {
   try {
     await syncBoardingRegistrations();
@@ -228,7 +363,7 @@ router.get('/manifest', async (req, res, next) => {
       LEFT JOIN transport_boarding tb ON tb.student_id = s.id
       LEFT JOIN transport_tickets tt ON tt.student_id = s.id
       WHERE s.status = 'Boarding'
-        AND s.preferred_route IN ('Kigali', 'Rubavu', 'Huye', 'Muhanga')
+        AND s.preferred_route IN ('Kigali', 'Rubavu', 'Musanze')
         AND ($1::TEXT IS NULL OR s.preferred_route = $1)
       ORDER BY
         CASE COALESCE(tt.payment_status, 'Unpaid')
@@ -284,7 +419,7 @@ router.get('/tickets', async (req, res, next) => {
              tt.paid_at, tt.updated_by
       FROM students s
       LEFT JOIN transport_tickets tt ON tt.student_id = s.id
-      WHERE s.status = 'Boarding' AND s.preferred_route IN ('Kigali', 'Rubavu', 'Huye', 'Muhanga')
+      WHERE s.status = 'Boarding' AND s.preferred_route IN ('Kigali', 'Rubavu', 'Musanze')
       ORDER BY s.preferred_route ASC, s.name ASC;
     `);
     res.json({ success: true, data: result.rows });

@@ -10,6 +10,7 @@ const disciplineRouter = require('./routes/discipline');
 const conduitRouter = require('./routes/conduit');
 const attendanceRouter = require('./routes/attendance');
 const transportRouter = require('./routes/transport');
+const smsRouter = require('./routes/sms');
 const bellRouter = require('./routes/bell');
 const authRouter = require('./routes/auth');
 const usersRouter = require('./routes/users');
@@ -189,14 +190,26 @@ async function ensureDatabaseSchema() {
       scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
-  await pool.query(`
-    CREATE TABLE IF NOT EXISTS discipline_settings (
+    await pool.query(`
+    CREATE TABLE IF NOT EXISTS system_settings (
       setting_key VARCHAR(100) PRIMARY KEY,
       setting_value TEXT NOT NULL,
-      updated_by VARCHAR(255) NOT NULL DEFAULT '',
+      updated_by INTEGER REFERENCES users(id),
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS system_logs (
+      id SERIAL PRIMARY KEY,
+      action VARCHAR(100) NOT NULL,
+      entity VARCHAR(100),
+      detail TEXT,
+      actor_username VARCHAR(150),
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+
   await pool.query('CREATE INDEX IF NOT EXISTS idx_corrective_actions_student ON corrective_actions (student_id);');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_merit_demerit_student ON merit_demerit_entries (student_id);');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_gate_scans_student ON gate_scans (student_id);');
@@ -332,6 +345,37 @@ async function ensureDatabaseSchema() {
     );
   `);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_bell_logs_triggered_at ON bell_logs(triggered_at DESC);');
+  // SMS & Notifications Center: sent-message log + announcements
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS sms_logs (
+      id BIGSERIAL PRIMARY KEY,
+      student_id INT REFERENCES students(id) ON DELETE SET NULL,
+      recipient_name VARCHAR(255) NOT NULL,
+      recipient_role VARCHAR(30) NOT NULL DEFAULT 'parent',
+      phone VARCHAR(30) NOT NULL DEFAULT '',
+      message TEXT NOT NULL,
+      category VARCHAR(30) NOT NULL DEFAULT 'announcement'
+        CHECK (category IN ('visite_day', 'gate_pass', 'check_in', 'check_out', 'announcement', 'staff_broadcast')),
+      status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('sent', 'pending', 'failed')),
+      sender_name VARCHAR(255) NOT NULL DEFAULT 'System',
+      sender_role VARCHAR(30) NOT NULL DEFAULT 'ADMIN',
+      sent_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_sms_logs_sent_at ON sms_logs (sent_at DESC);');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS announcements (
+      id SERIAL PRIMARY KEY,
+      title VARCHAR(200) NOT NULL,
+      body TEXT NOT NULL,
+      audience VARCHAR(20) NOT NULL DEFAULT 'all' CHECK (audience IN ('staff', 'parents', 'all')),
+      created_by VARCHAR(255) NOT NULL DEFAULT 'System',
+      created_by_role VARCHAR(30) NOT NULL DEFAULT 'ADMIN',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+  await pool.query('ALTER TABLE permissions ADD COLUMN IF NOT EXISTS sms_log_id BIGINT;');
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS bell_device (
       id INTEGER PRIMARY KEY DEFAULT 1 CHECK (id = 1),
@@ -404,6 +448,10 @@ app.use('/api/attendance', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD'), att
 // Musanze Hub transport logistics: ADMIN manages; PATRON/MATRON/DOD view manifests & parent pick-up;
 // SECURITY performs the boarding call-up check-off.
 app.use('/api/transport', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD', 'SECURITY'), transportRouter);
+
+// SMS & Notifications Center: every staff role can view logs; all listed staff
+// roles may trigger automated notifications, announcements and staff broadcasts.
+app.use('/api/sms', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD', 'TEACHER', 'BURSAR', 'SECURITY'), smsRouter);
 
 // Connect IoT smart bell module route
 // Read access (schedules, device health, ring log) is open to every authenticated

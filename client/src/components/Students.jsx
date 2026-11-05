@@ -6,7 +6,7 @@ import { useToast } from './ToastProvider';
 import './Students.css';
 
 const PAGE_SIZE = 7;
-const TRANSPORT_ROUTES = ['Kigali', 'Rubavu', 'Huye', 'Muhanga', 'Parent Pick-Up'];
+const TRANSPORT_ROUTES = ['Kigali', 'Rubavu', 'Musanze', 'Parent Pick-Up'];
 
 /**
  * Standardized QR payload for every student — used by the ID badge generator
