@@ -351,30 +351,48 @@ async function ensureDatabaseSchema() {
     CREATE TABLE IF NOT EXISTS sms_logs (
       id BIGSERIAL PRIMARY KEY,
       student_id INT REFERENCES students(id) ON DELETE SET NULL,
-      recipient_name VARCHAR(255) NOT NULL,
-      recipient_role VARCHAR(30) NOT NULL DEFAULT 'parent',
-      phone VARCHAR(30) NOT NULL DEFAULT '',
-      message TEXT NOT NULL,
-      category VARCHAR(30) NOT NULL DEFAULT 'announcement'
-        CHECK (category IN ('visite_day', 'gate_pass', 'check_in', 'check_out', 'announcement', 'staff_broadcast')),
-      status VARCHAR(20) NOT NULL DEFAULT 'pending' CHECK (status IN ('sent', 'pending', 'failed')),
-      sender_name VARCHAR(255) NOT NULL DEFAULT 'System',
-      sender_role VARCHAR(30) NOT NULL DEFAULT 'ADMIN',
-      sent_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+      recipient_phone VARCHAR(30) NOT NULL DEFAULT '',
+      recipient_name VARCHAR(255) NOT NULL DEFAULT '',
+      recipient_role VARCHAR(20) NOT NULL DEFAULT 'parent'
+        CHECK (recipient_role IN ('parent', 'staff')),
+      message_body TEXT NOT NULL,
+      notification_type VARCHAR(20) NOT NULL DEFAULT 'ANNOUNCEMENT'
+        CHECK (notification_type IN ('CHECK_IN', 'CHECK_OUT', 'GATE_PASS', 'VISITE_DAY', 'ANNOUNCEMENT')),
+      status VARCHAR(20) NOT NULL DEFAULT 'LOGGED_ONLY'
+        CHECK (status IN ('SENT', 'FAILED', 'LOGGED_ONLY')),
+      provider_response JSONB,
+      sent_by VARCHAR(255) NOT NULL DEFAULT 'system',
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
   `);
-  await pool.query('CREATE INDEX IF NOT EXISTS idx_sms_logs_sent_at ON sms_logs (sent_at DESC);');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_sms_logs_created_at ON sms_logs (created_at DESC);');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_sms_logs_student ON sms_logs (student_id);');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_sms_logs_status ON sms_logs (status);');
   await pool.query(`
     CREATE TABLE IF NOT EXISTS announcements (
-      id SERIAL PRIMARY KEY,
+      id BIGSERIAL PRIMARY KEY,
       title VARCHAR(200) NOT NULL,
-      body TEXT NOT NULL,
-      audience VARCHAR(20) NOT NULL DEFAULT 'all' CHECK (audience IN ('staff', 'parents', 'all')),
-      created_by VARCHAR(255) NOT NULL DEFAULT 'System',
-      created_by_role VARCHAR(30) NOT NULL DEFAULT 'ADMIN',
+      message_body TEXT NOT NULL DEFAULT '',
+      audience VARCHAR(20) NOT NULL DEFAULT 'everyone'
+        CHECK (audience IN ('parents', 'staff', 'everyone')),
+      dispatch_sms BOOLEAN NOT NULL DEFAULT TRUE,
+      sent_by INT REFERENCES users(id) ON DELETE SET NULL,
+      created_by_name VARCHAR(255) NOT NULL DEFAULT 'system',
       created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
     );
   `);
+  // Legacy-shape migrations for pre-existing installs.
+  await pool.query('ALTER TABLE announcements ADD COLUMN IF NOT EXISTS message_body TEXT;');
+  await pool.query('ALTER TABLE announcements ADD COLUMN IF NOT EXISTS dispatch_sms BOOLEAN DEFAULT TRUE;');
+  await pool.query('ALTER TABLE announcements ADD COLUMN IF NOT EXISTS sent_by INT REFERENCES users(id) ON DELETE SET NULL;');
+  await pool.query('ALTER TABLE announcements ADD COLUMN IF NOT EXISTS created_by_name VARCHAR(255) NOT NULL DEFAULT \'system\';');
+  await pool.query('UPDATE announcements SET message_body = body WHERE message_body IS NULL AND body IS NOT NULL;');
+  await pool.query('ALTER TABLE announcements DROP CONSTRAINT IF EXISTS announcements_audience_check;');
+  await pool.query('ALTER TABLE announcements ADD CONSTRAINT announcements_audience_check CHECK (audience IN (\'parents\', \'staff\', \'everyone\'));');
+  await pool.query('UPDATE announcements SET audience = \'everyone\' WHERE audience = \'all\';');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_announcements_created_at ON announcements (created_at DESC);');
+  // Gate-pass metadata + SMS linkage for permissions (Visite Day / Gate Pass triggers)
+  await pool.query('ALTER TABLE permissions ADD COLUMN IF NOT EXISTS destination VARCHAR(255);');
   await pool.query('ALTER TABLE permissions ADD COLUMN IF NOT EXISTS sms_log_id BIGINT;');
 
   await pool.query(`

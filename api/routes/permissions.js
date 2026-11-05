@@ -2,6 +2,41 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
 const { enqueuePermissionNotification, retryFailedNotifications } = require('../services/permissionNotifications');
+const { sendSMS } = require('../services/smsService');
+
+// 🔔 Fire a guardian gate-pass SMS (GATE_PASS type) — never blocks the request.
+async function sendGatePassSms(permissionId, actorName = 'system') {
+  try {
+    const detail = await pool.query(
+      `SELECT p.id, p.student_id, s.name, s.reg_number, s.guardian_name, s.guardian_email, s.guardian_phone,
+              COALESCE(p.destination, '') AS destination,
+              TO_CHAR(COALESCE(p.expected_return_time, p.return_timestamp), 'YYYY-MM-DD HH24:MI') AS expected_return
+       FROM permissions p
+       JOIN students s ON s.id = p.student_id
+       WHERE p.id = $1;`,
+      [permissionId]
+    );
+    if (!detail.rowCount) return;
+    const row = detail.rows[0];
+    const message =
+      `MIPC EDU: ${row.name} (${row.reg_number}) has been granted a gate pass` +
+      (row.destination ? ` to ${row.destination}.` : '.') +
+      (row.expected_return ? ` Expected return: ${row.expected_return}.` : '') +
+      ` — ${actorName}`;
+    const result = await sendSMS({
+      to: row.guardian_phone || '',
+      message,
+      studentId: row.student_id,
+      type: 'GATE_PASS',
+      recipientName: row.guardian_name || row.guardian_email || 'Parent/Guardian',
+      recipientRole: 'parent',
+      sentBy: actorName,
+    });
+    await pool.query('UPDATE permissions SET sms_log_id = $2 WHERE id = $1;', [permissionId, result.logId]);
+  } catch (err) {
+    console.error('[GATE_PASS_SMS_ERROR]', err.message);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Security role policy: SECURITY is strictly view + gate-report only.
@@ -104,6 +139,7 @@ router.patch('/:id/status', async (req, res, next) => {
     }
     if (status === 'Approved') {
       await enqueuePermissionNotification(result.rows[0].id, 'approved');
+      await sendGatePassSms(result.rows[0].id, req.user?.full_name || 'system');
     }
     return res.json({ success: true, permission: result.rows[0] });
   } catch (error) {
@@ -134,6 +170,7 @@ router.post('/give', async (req, res, next) => {
       [parseInt(student_id), reason, departure_time || null, return_timestamp || null, finalExpectedReturnTime]
     );
     await enqueuePermissionNotification(result.rows[0].id, 'approved');
+    await sendGatePassSms(result.rows[0].id, req.user?.full_name || 'system');
     res.status(201).json({ success: true, permission: result.rows[0] });
   } catch (err) {
     console.error('PERMISSION_SUBMIT_ERROR:', err);
@@ -420,10 +457,34 @@ function formatOverdueDuration(seconds) {
 router.post('/gate/:id/return', async (req, res, next) => {
   try {
     const result = await pool.query(
-      "UPDATE permissions SET status = 'Returned', actual_return_timestamp = CURRENT_TIMESTAMP WHERE id = $1 AND actual_return_timestamp IS NULL RETURNING id, status;",
+      "UPDATE permissions SET status = 'Returned', actual_return_timestamp = CURRENT_TIMESTAMP WHERE id = $1 AND actual_return_timestamp IS NULL RETURNING id, student_id, status;",
       [req.params.id]
     );
     if (!result.rowCount) return res.status(404).json({ success: false, error: 'Permission request not found or already returned.' });
+
+    // 🔔 Automated CHECK_OUT / safe-return notification to the guardian.
+    try {
+      const detail = await pool.query(
+        `SELECT s.id AS student_id, s.name, s.reg_number, s.guardian_name, s.guardian_email, s.guardian_phone
+         FROM permissions p JOIN students s ON s.id = p.student_id WHERE p.id = $1;`,
+        [req.params.id]
+      );
+      if (detail.rowCount) {
+        const row = detail.rows[0];
+        await sendSMS({
+          to: row.guardian_phone || '',
+          message: `MIPC EDU: ${row.name} (${row.reg_number}) has safely RETURNED to campus at ${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}.`,
+          studentId: row.student_id,
+          type: 'CHECK_OUT',
+          recipientName: row.guardian_name || row.guardian_email || 'Parent/Guardian',
+          recipientRole: 'parent',
+          sentBy: req.user?.full_name || 'gate-return',
+        });
+      }
+    } catch (smsError) {
+      console.error('[GATE_RETURN_SMS_ERROR]', smsError.message);
+    }
+
     return res.json({ success: true, permission: result.rows[0] });
   } catch (err) {
     console.error('GATE_RETURN_ERROR:', err);

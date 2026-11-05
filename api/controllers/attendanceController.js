@@ -1,4 +1,5 @@
 const pool = require('../config/database');
+const { sendSMS } = require('../services/smsService');
 
 const validStatuses = new Set(['present', 'absent', 'late', 'permission']);
 
@@ -323,6 +324,34 @@ async function recordAttendanceScan(req, res) {
     }
     await client.query('COMMIT');
     transactionStarted = false;
+
+    // 🔔 Automated guardian SMS on NFC/QR gate scans (never blocks the scan).
+    try {
+      const guardian = await pool.query(
+        'SELECT guardian_name, guardian_email, guardian_phone FROM students WHERE id = $1;',
+        [matchedStudent.id]
+      );
+      const g = guardian.rows[0] || {};
+      const message =
+        `MIPC EDU: ${matchedStudent.name} (${matchedStudent.reg_number}) checked ` +
+        `${action === 'entry' ? 'IN to' : 'OUT of'} campus at ` +
+        `${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}` +
+        (check_in_method && check_in_method !== 'manual' ? ` via ${check_in_method} scan` : '');
+      const smsResult = await sendSMS({
+        to: g.guardian_phone || '',
+        message,
+        studentId: matchedStudent.id,
+        type: action === 'entry' ? 'CHECK_IN' : 'CHECK_OUT',
+        recipientName: g.guardian_name || g.guardian_email || 'Parent/Guardian',
+        recipientRole: 'parent',
+        sentBy: 'attendance-scan',
+      });
+      if (smsResult.status === 'FAILED') {
+        console.warn('[ATTENDANCE_SCAN_SMS] guardian SMS failed:', smsResult.providerResponse);
+      }
+    } catch (smsError) {
+      console.error('[ATTENDANCE_SCAN_SMS_ERROR]', smsError.message);
+    }
 
     return res.status(201).json({
       success: true,

@@ -1,78 +1,52 @@
 const express = require('express');
 const router = express.Router();
 const pool = require('../config/database');
+const {
+  sendSMS,
+  sendBulkSMS,
+  fetchParentRecipients,
+  formatRwandanPhone,
+  VALID_TYPES,
+} = require('../services/smsService');
 
 // ==========================================
-// 📱 SMS & NOTIFICATIONS CENTER
-// Tables: sms_logs, announcements
+// 📱 SMS & NOTIFICATIONS CENTER — Africa's Talking backed
+// Tables: sms_logs, announcements (see database/08_sms_setup.sql)
 // ==========================================
 
 const STAFF_ROLES = ['ADMIN', 'DOD', 'PATRON', 'MATRON', 'TEACHER', 'BURSAR', 'SECURITY'];
-const ANNOUNCEMENT_AUDIENCES = ['staff', 'parents', 'all'];
-const SMS_CATEGORIES = [
-  'visite_day',
-  'gate_pass',
-  'check_in',
-  'check_out',
-  'announcement',
-  'staff_broadcast',
-];
 
-/**
- * Simulated SMS gateway. Swap this with Africa's Talking / Twilio / MTN Rwanda
- * integration by setting SMS_GATEWAY_URL; messages are always logged to
- * sms_logs with status 'sent' (or 'pending' when no gateway is configured).
- */
-async function dispatchSms({ phone, message }) {
-  const gateway = process.env.SMS_GATEWAY_URL;
-  if (!gateway) {
-    return { status: 'sent', provider_ref: `local-${Date.now()}` };
-  }
-  try {
-    const response = await fetch(gateway, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ to: phone, message }),
-    });
-    return { status: response.ok ? 'sent' : 'pending', provider_ref: `gw-${Date.now()}` };
-  } catch {
-    return { status: 'pending', provider_ref: null };
-  }
-}
+const STAFF_ROLE_FOLDERS = {
+  CHECK_IN: 'check_in',
+  CHECK_OUT: 'check_out',
+  GATE_PASS: 'gate_pass',
+  VISITE_DAY: 'visite_day',
+  ANNOUNCEMENT: 'announcement',
+};
 
-async function logSms({ studentId = null, recipient, recipientRole = 'parent', phone, message, category, senderName, senderRole, status = 'sent' }) {
-  const result = await pool.query(
-    `INSERT INTO sms_logs (student_id, recipient_name, recipient_role, phone, message, category, status, sender_name, sender_role)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-     RETURNING *;`,
-    [studentId, recipient, recipientRole, phone || '', message, category, status, senderName, senderRole]
-  );
-  return result.rows[0];
-}
-
-function ensureRole(req) {
-  return req.user?.full_name || req.user?.username || 'System';
+function actorName(req) {
+  return req.user?.full_name || req.user?.username || 'system';
 }
 
 // ==========================================
-// GET /api/sms/logs — sms history (+filters)
+// GET /api/sms/logs?notification_type=&status=&search=
 // ==========================================
 router.get('/logs', async (req, res, next) => {
   try {
-    const { category, status, search } = req.query;
+    const { notification_type: type, status, search } = req.query;
     const params = [];
     const clauses = [];
-    if (category && SMS_CATEGORIES.includes(category)) {
-      params.push(category);
-      clauses.push(`category = $${params.length}`);
+    if (type && VALID_TYPES.includes(type)) {
+      params.push(type);
+      clauses.push(`notification_type = $${params.length}`);
     }
-    if (status && ['sent', 'pending', 'failed'].includes(status)) {
+    if (status && ['SENT', 'FAILED', 'LOGGED_ONLY'].includes(status)) {
       params.push(status);
       clauses.push(`status = $${params.length}`);
     }
     if (search) {
       params.push(`%${search}%`);
-      clauses.push(`(recipient_name ILIKE $${params.length} OR message ILIKE $${params.length})`);
+      clauses.push(`(recipient_name ILIKE $${params.length} OR message_body ILIKE $${params.length} OR recipient_phone ILIKE $${params.length})`);
     }
     const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : '';
     const result = await pool.query(
@@ -80,16 +54,17 @@ router.get('/logs', async (req, res, next) => {
        FROM sms_logs sl
        LEFT JOIN students s ON s.id = sl.student_id
        ${where}
-       ORDER BY sl.sent_at DESC
+       ORDER BY sl.created_at DESC
        LIMIT 200;`,
       params
     );
     const stats = await pool.query(`
       SELECT
         COUNT(*)::INT AS total,
-        COUNT(*) FILTER (WHERE status = 'sent')::INT AS sent,
-        COUNT(*) FILTER (WHERE status = 'pending')::INT AS pending,
-        COUNT(*) FILTER (WHERE sent_at::date = CURRENT_DATE)::INT AS today
+        COUNT(*) FILTER (WHERE status = 'SENT')::INT AS sent,
+        COUNT(*) FILTER (WHERE status = 'FAILED')::INT AS failed,
+        COUNT(*) FILTER (WHERE status = 'LOGGED_ONLY')::INT AS logged_only,
+        COUNT(*) FILTER (WHERE created_at::date = CURRENT_DATE)::INT AS today
       FROM sms_logs;
     `);
     res.json({ success: true, data: result.rows, stats: stats.rows[0] });
@@ -100,28 +75,31 @@ router.get('/logs', async (req, res, next) => {
 });
 
 // ==========================================
-// POST /api/sms/send — manual/targeted SMS
-// body: { student_id?, recipient_name, phone, message, category }
+// POST /api/sms/send — direct SMS to one number
+// body: { to, message, student_id?, notification_type?, recipient_name?, recipient_role? }
 // ==========================================
 router.post('/send', async (req, res, next) => {
   try {
-    const { student_id, recipient_name, phone, message, category } = req.body || {};
-    if (!recipient_name || !message) {
-      return res.status(400).json({ success: false, error: 'recipient_name and message are required.' });
+    const { to, message, student_id, notification_type, recipient_name, recipient_role } = req.body || {};
+    if (!to || !message) {
+      return res.status(400).json({ success: false, error: 'to and message are required.' });
     }
-    const cat = SMS_CATEGORIES.includes(category) ? category : 'announcement';
-    const dispatch = await dispatchSms({ phone, message });
-    const log = await logSms({
-      studentId: student_id ? Number(student_id) : null,
-      recipient: recipient_name,
-      phone,
+    const result = await sendSMS({
+      to,
       message,
-      category: cat,
-      senderName: ensureRole(req),
-      senderRole: req.user?.role || 'ADMIN',
-      status: dispatch.status,
+      studentId: student_id ? Number(student_id) : null,
+      type: VALID_TYPES.includes(notification_type) ? notification_type : 'ANNOUNCEMENT',
+      recipientName: recipient_name || '',
+      recipientRole: recipient_role === 'staff' ? 'staff' : 'parent',
+      sentBy: actorName(req),
     });
-    res.status(201).json({ success: true, sms: log });
+    const statusCode = result.status === 'FAILED' ? 502 : 201;
+    return res.status(statusCode).json({
+      success: result.status !== 'FAILED',
+      status: result.status,
+      sms_log_id: result.logId,
+      provider_response: result.providerResponse,
+    });
   } catch (err) {
     console.error('SMS_SEND_ERROR:', err);
     next(err);
@@ -129,8 +107,9 @@ router.post('/send', async (req, res, next) => {
 });
 
 // ==========================================
-// 🚸 AUTOMATED TRIGGER: Visite Day / Gate Pass notification
+// 🚸 TRIGGER: Gate Pass / Visite Day release notification
 // body: { student_id, destination, expected_return, permission_id? }
+// Fetches guardian phone from students and fires sendSMS().
 // ==========================================
 router.post('/trigger/gate-pass', async (req, res, next) => {
   try {
@@ -140,27 +119,26 @@ router.post('/trigger/gate-pass', async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'Student not found.' });
     }
     const student = studentRes.rows[0];
-    const phone = student.guardian_phone || '';
     const message =
       `MIPC EDU: ${student.name} (${student.reg_number}) has been granted a gate pass` +
-      (destination ? ` to ${destination}` : '') +
-      (expected_return ? `. Expected return: ${new Date(expected_return).toLocaleString()}` : '') +
-      `. — ${ensureRole(req)}`;
-    const dispatch = await dispatchSms({ phone, message });
-    const log = await logSms({
-      studentId: student.id,
-      recipient: student.guardian_name || student.guardian_email || 'Parent/Guardian',
-      phone,
+      (destination ? ` to ${destination}.` : '.') +
+      (expected_return ? ` Expected return: ${new Date(expected_return).toLocaleString('en-GB')}.` : '') +
+      ` — ${actorName(req)}`;
+
+    const result = await sendSMS({
+      to: student.guardian_phone || '',
       message,
-      category: 'gate_pass',
-      senderName: ensureRole(req),
-      senderRole: req.user?.role || 'ADMIN',
-      status: dispatch.status,
+      studentId: student.id,
+      type: 'GATE_PASS',
+      recipientName: student.guardian_name || student.guardian_email || 'Parent/Guardian',
+      recipientRole: 'parent',
+      sentBy: actorName(req),
     });
+
     if (permission_id) {
-      await pool.query('UPDATE permissions SET sms_log_id = $2 WHERE id = $1;', [permission_id, log.id]);
+      await pool.query('UPDATE permissions SET sms_log_id = $2 WHERE id = $1;', [permission_id, result.logId]);
     }
-    res.status(201).json({ success: true, sms: log, message });
+    res.status(201).json({ success: result.status !== 'FAILED', status: result.status, sms_log_id: result.logId, message });
   } catch (err) {
     console.error('SMS_GATE_PASS_ERROR:', err);
     next(err);
@@ -168,8 +146,7 @@ router.post('/trigger/gate-pass', async (req, res, next) => {
 });
 
 // ==========================================
-// 🚪 AUTOMATED TRIGGER: Day-scholar / Boarder Check-In & Check-Out
-// Fired by NFC/QR gate scans or attendance/discipline updates.
+// 🚪 TRIGGER: Check-In / Check-Out notification (NFC/QR scan or attendance update)
 // body: { student_id, direction: 'in'|'out', method?: 'nfc'|'qr'|'manual' }
 // ==========================================
 router.post('/trigger/check', async (req, res, next) => {
@@ -183,26 +160,23 @@ router.post('/trigger/check', async (req, res, next) => {
       return res.status(404).json({ success: false, error: 'Student not found.' });
     }
     const student = studentRes.rows[0];
-    const isBoarder = String(student.status || '').toLowerCase() === 'boarding';
     const scanNote = method && method !== 'manual' ? ` via ${method.toUpperCase()} scan` : '';
     const message =
-      `MIPC EDU: ${student.name} (${student.reg_number})` +
-      ` has checked ${direction === 'in' ? 'IN to' : 'OUT of'} campus at ` +
-      `${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` +
-      `${scanNote} — ${ensureRole(req)}`;
-    const phone = student.guardian_phone || '';
-    const dispatch = await dispatchSms({ phone, message });
-    const log = await logSms({
-      studentId: student.id,
-      recipient: student.guardian_name || student.guardian_email || 'Parent/Guardian',
-      phone,
+      `MIPC EDU: ${student.name} (${student.reg_number}) checked ` +
+      `${direction === 'in' ? 'IN to' : 'OUT of'} campus at ` +
+      `${new Date().toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}${scanNote}` +
+      ` — ${actorName(req)}`;
+
+    const result = await sendSMS({
+      to: student.guardian_phone || '',
       message,
-      category: direction === 'in' ? 'check_in' : 'check_out',
-      senderName: ensureRole(req),
-      senderRole: req.user?.role || 'SECURITY',
-      status: dispatch.status,
+      studentId: student.id,
+      type: direction === 'in' ? 'CHECK_IN' : 'CHECK_OUT',
+      recipientName: student.guardian_name || student.guardian_email || 'Parent/Guardian',
+      recipientRole: 'parent',
+      sentBy: actorName(req),
     });
-    res.status(201).json({ success: true, sms: log, message, student_type: isBoarder ? 'boarder' : 'day_scholar' });
+    res.status(201).json({ success: result.status !== 'FAILED', status: result.status, sms_log_id: result.logId, message });
   } catch (err) {
     console.error('SMS_CHECK_TRIGGER_ERROR:', err);
     next(err);
@@ -211,19 +185,19 @@ router.post('/trigger/check', async (req, res, next) => {
 
 // ==========================================
 // 📣 ANNOUNCEMENTS
-// GET /api/sms/announcements  — list (staff see all)
-// POST /api/sms/announcements — create + broadcast
-// body: { title, body, audience: 'staff'|'parents'|'all', send_sms? }
+// GET  /api/sms/announcements — list
+// POST /api/sms/announcements — create + bulk dispatch
+// body: { title, message_body, audience: 'parents'|'staff'|'everyone', dispatch_sms? }
 // ==========================================
 router.get('/announcements', async (req, res, next) => {
   try {
-    const result = await pool.query(`
-      SELECT a.*, s.name AS student_name
-      FROM announcements a
-      LEFT JOIN students s ON s.id = a.student_id
-      ORDER BY a.created_at DESC
-      LIMIT 200;
-    `);
+    const result = await pool.query(
+      `SELECT a.*, u.full_name AS sent_by_name
+       FROM announcements a
+       LEFT JOIN users u ON u.id = a.sent_by
+       ORDER BY a.created_at DESC
+       LIMIT 200;`
+    );
     res.json({ success: true, data: result.rows });
   } catch (err) {
     console.error('ANNOUNCEMENTS_LIST_ERROR:', err);
@@ -233,73 +207,54 @@ router.get('/announcements', async (req, res, next) => {
 
 router.post('/announcements', async (req, res, next) => {
   try {
-    const { title, body, audience, send_sms } = req.body || {};
-    if (!title || !body) {
-      return res.status(400).json({ success: false, error: 'title and body are required.' });
+    const { title, message_body, audience, dispatch_sms, student_ids } = req.body || {};
+    if (!title || !message_body) {
+      return res.status(400).json({ success: false, error: 'title and message_body are required.' });
     }
-    const aud = ANNOUNCEMENT_AUDIENCES.includes(audience) ? audience : 'all';
+    const aud = ['parents', 'staff', 'everyone'].includes(audience) ? audience : 'everyone';
+    const shouldDispatch = dispatch_sms !== false;
 
     const inserted = await pool.query(
-      `INSERT INTO announcements (title, body, audience, created_by, created_by_role)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO announcements (title, message_body, audience, dispatch_sms, sent_by, created_by_name)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING *;`,
-      [title.trim(), body.trim(), aud, ensureRole(req), req.user?.role || 'ADMIN']
+      [title.trim(), message_body.trim(), aud, shouldDispatch, req.user?.id || null, actorName(req)]
     );
     const announcement = inserted.rows[0];
+    const fullMessage = `MIPC EDU: ${title.trim()} — ${message_body.trim()}`;
 
-    // Broadcast: staff-only, parents, or both.
     let recipients = [];
-    let smsCount = 0;
-    if (aud === 'staff' || aud === 'all') {
-      recipients = recipients.concat(STAFF_ROLES.map((role) => ({ name: `${role} staff`, role, phone: '' })));
+    if (aud === 'parents' || aud === 'everyone') {
+      recipients = recipients.concat(await fetchParentRecipients(
+        Array.isArray(student_ids) && student_ids.length ? student_ids.map(Number) : null
+      ));
     }
-    if (aud === 'parents' || aud === 'all') {
-      const parentsRes = await pool.query(
-        `SELECT id, name, guardian_name, guardian_email, guardian_phone FROM students;`
-      );
+    if (aud === 'staff' || aud === 'everyone') {
+      // Staff broadcasts are recorded as LOGGED_ONLY in-app notifications
+      // (staff numbers are not stored in the database).
       recipients = recipients.concat(
-        parentsRes.rows.map((s) => ({
-          name: s.guardian_name || s.guardian_email || `Parent of ${s.name}`,
-          role: 'parent',
-          phone: s.guardian_phone || '',
-          studentId: s.id,
+        STAFF_ROLES.filter((r) => r !== req.user?.role).map((role) => ({
+          name: `${role} staff`, phone: '', role: 'staff',
         }))
       );
     }
 
-    if (send_sms !== false) {
-      for (const r of recipients) {
-        if (aud === 'parents' || aud === 'all') {
-          if (!r.phone) continue; // only text parents we can reach
-          const dispatch = await dispatchSms({ phone: r.phone, message: `MIPC EDU: ${title} — ${body}` });
-          await logSms({
-            studentId: r.studentId || null,
-            recipient: r.name,
-            recipientRole: r.role,
-            phone: r.phone,
-            message: `MIPC EDU: ${title} — ${body}`,
-            category: 'announcement',
-            senderName: ensureRole(req),
-            senderRole: req.user?.role || 'ADMIN',
-            status: dispatch.status,
-          });
-          smsCount += 1;
-        } else {
-          await logSms({
-            recipient: r.name,
-            recipientRole: r.role,
-            message: `MIPC EDU [STAFF]: ${title} — ${body}`,
-            category: 'staff_broadcast',
-            senderName: ensureRole(req),
-            senderRole: req.user?.role || 'ADMIN',
-            status: 'sent',
-          });
-          smsCount += 1;
-        }
-      }
+    let dispatchSummary = null;
+    if (shouldDispatch) {
+      dispatchSummary = await sendBulkSMS({
+        recipients,
+        message: fullMessage,
+        type: 'ANNOUNCEMENT',
+        sentBy: actorName(req),
+      });
     }
 
-    res.status(201).json({ success: true, announcement, recipients: recipients.length, sms_sent: smsCount });
+    res.status(201).json({
+      success: true,
+      announcement,
+      recipients: recipients.length,
+      dispatch: dispatchSummary || { sent: 0, failed: 0, logged_only: recipients.length, logs: [] },
+    });
   } catch (err) {
     console.error('ANNOUNCEMENT_CREATE_ERROR:', err);
     next(err);
@@ -308,36 +263,36 @@ router.post('/announcements', async (req, res, next) => {
 
 // ==========================================
 // 📣 STAFF BROADCAST — internal memo strictly among staff
-// body: { title, body, target_roles?: [] } (empty target = all staff roles)
+// body: { title, message_body, target_roles?: [] }
 // ==========================================
 router.post('/broadcast', async (req, res, next) => {
   try {
-    const { title, body, target_roles } = req.body || {};
-    if (!title || !body) {
-      return res.status(400).json({ success: false, error: 'title and body are required.' });
+    const { title, message_body, target_roles } = req.body || {};
+    if (!title || !message_body) {
+      return res.status(400).json({ success: false, error: 'title and message_body are required.' });
     }
     const roles = Array.isArray(target_roles) && target_roles.length
       ? target_roles.filter((r) => STAFF_ROLES.includes(r))
-      : STAFF_ROLES;
+      : STAFF_ROLES.filter((r) => r !== req.user?.role);
     if (!roles.length) {
       return res.status(400).json({ success: false, error: 'No valid staff roles targeted.' });
     }
     const inserted = await pool.query(
-      `INSERT INTO announcements (title, body, audience, created_by, created_by_role)
-       VALUES ($1, $2, 'staff', $3, $4)
+      `INSERT INTO announcements (title, message_body, audience, dispatch_sms, sent_by, created_by_name)
+       VALUES ($1, $2, 'staff', FALSE, $3, $4)
        RETURNING *;`,
-      [title.trim(), body.trim(), ensureRole(req), req.user?.role || 'ADMIN']
+      [title.trim(), message_body.trim(), req.user?.id || null, actorName(req)]
     );
+    const message = `MIPC EDU [STAFF BROADCAST from ${req.user?.role}]: ${title.trim()} — ${message_body.trim()}`;
     let count = 0;
     for (const role of roles) {
-      await logSms({
-        recipient: `${role} staff`,
-        recipientRole: role,
-        message: `MIPC EDU [STAFF BROADCAST from ${req.user?.role}]: ${title} — ${body}`,
-        category: 'staff_broadcast',
-        senderName: ensureRole(req),
-        senderRole: req.user?.role || 'ADMIN',
-        status: 'sent',
+      await sendSMS({
+        to: '',
+        message,
+        type: 'ANNOUNCEMENT',
+        recipientName: `${role} staff`,
+        recipientRole: 'staff',
+        sentBy: actorName(req),
       });
       count += 1;
     }
@@ -360,6 +315,14 @@ router.delete('/announcements/:id', async (req, res, next) => {
     console.error('ANNOUNCEMENT_DELETE_ERROR:', err);
     next(err);
   }
+});
+
+// ==========================================
+// POST /api/sms/validate-phone — utility for the UI
+// ==========================================
+router.post('/validate-phone', async (req, res) => {
+  const result = formatRwandanPhone(req.body?.phone);
+  return res.json({ success: result.ok, ...result });
 });
 
 module.exports = router;

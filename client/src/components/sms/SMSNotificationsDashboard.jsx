@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  BellRing, Bus, CheckCircle2, ClipboardList, Clock, Filter, Loader2, Megaphone,
+  AlertTriangle, BellRing, Bus, CheckCircle2, ClipboardList, Clock, Filter, Loader2, Megaphone,
   MessageSquare, RefreshCw, Search, Send, Smartphone, Trash2, Users, X,
 } from 'lucide-react';
 import { apiFetch } from '../../api/config';
@@ -8,38 +8,41 @@ import { useToast } from '../ToastProvider';
 
 const CATEGORIES = [
   { value: '', label: 'All Categories' },
-  { value: 'visite_day', label: 'Visite Day' },
-  { value: 'gate_pass', label: 'Gate Pass / Permission' },
-  { value: 'check_in', label: 'Check-In' },
-  { value: 'check_out', label: 'Check-Out' },
-  { value: 'announcement', label: 'Parent Announcement' },
-  { value: 'staff_broadcast', label: 'Staff Broadcast' },
+  { value: 'VISITE_DAY', label: 'Visite Day' },
+  { value: 'GATE_PASS', label: 'Gate Pass / Permission' },
+  { value: 'CHECK_IN', label: 'Check-In' },
+  { value: 'CHECK_OUT', label: 'Check-Out' },
+  { value: 'ANNOUNCEMENT', label: 'Announcement' },
 ];
 
 const STAFF_ROLES = ['ADMIN', 'DOD', 'PATRON', 'MATRON', 'TEACHER', 'BURSAR', 'SECURITY'];
 
 const CATEGORY_BADGE = {
-  visite_day: 'bg-violet-50 text-violet-700 border-violet-200',
-  gate_pass: 'bg-sky-50 text-sky-700 border-sky-200',
-  check_in: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-  check_out: 'bg-amber-50 text-amber-700 border-amber-200',
-  announcement: 'bg-indigo-50 text-indigo-700 border-indigo-200',
-  staff_broadcast: 'bg-rose-50 text-rose-700 border-rose-200',
+  VISITE_DAY: 'bg-violet-50 text-violet-700 border-violet-200',
+  GATE_PASS: 'bg-sky-50 text-sky-700 border-sky-200',
+  CHECK_IN: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  CHECK_OUT: 'bg-amber-50 text-amber-700 border-amber-200',
+  ANNOUNCEMENT: 'bg-indigo-50 text-indigo-700 border-indigo-200',
 };
 
 const CATEGORY_LABEL = {
-  visite_day: 'Visite Day',
-  gate_pass: 'Gate Pass',
-  check_in: 'Check-In',
-  check_out: 'Check-Out',
-  announcement: 'Announcement',
-  staff_broadcast: 'Staff Broadcast',
+  VISITE_DAY: 'Visite Day',
+  GATE_PASS: 'Gate Pass',
+  CHECK_IN: 'Check-In',
+  CHECK_OUT: 'Check-Out',
+  ANNOUNCEMENT: 'Announcement',
+};
+
+const STATUS_BADGE = {
+  SENT: 'border-emerald-200 bg-emerald-50 text-emerald-700',
+  FAILED: 'border-rose-200 bg-rose-50 text-rose-700',
+  LOGGED_ONLY: 'border-amber-200 bg-amber-50 text-amber-700',
 };
 
 const AUDIENCE_BADGE = {
   staff: 'bg-rose-50 text-rose-700 border-rose-200',
   parents: 'bg-indigo-50 text-indigo-700 border-indigo-200',
-  all: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+  everyone: 'bg-emerald-50 text-emerald-700 border-emerald-200',
 };
 
 function StatCard({ icon: Icon, label, value, tone }) {
@@ -90,7 +93,7 @@ function SMSNotificationsDashboard({ user }) {
   const { notify } = useToast();
   const [tab, setTab] = useState('logs');
   const [logs, setLogs] = useState([]);
-  const [stats, setStats] = useState({ total: 0, sent: 0, pending: 0, today: 0 });
+  const [stats, setStats] = useState({ total: 0, sent: 0, failed: 0, logged_only: 0, today: 0 });
   const [announcements, setAnnouncements] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -105,9 +108,9 @@ function SMSNotificationsDashboard({ user }) {
   const [showGatePass, setShowGatePass] = useState(false);
   const [showCheck, setShowCheck] = useState(false);
 
-  const [composeForm, setComposeForm] = useState({ recipient_name: '', phone: '', message: '', student_id: '' });
-  const [announceForm, setAnnounceForm] = useState({ title: '', body: '', audience: 'all', send_sms: true });
-  const [broadcastForm, setBroadcastForm] = useState({ title: '', body: '', target_roles: [] });
+  const [composeForm, setComposeForm] = useState({ recipient_name: '', phone: '', message: '', student_id: '', notification_type: 'ANNOUNCEMENT' });
+  const [announceForm, setAnnounceForm] = useState({ title: '', message_body: '', audience: 'everyone', dispatch_sms: true });
+  const [broadcastForm, setBroadcastForm] = useState({ title: '', message_body: '', target_roles: [] });
   const [gatePassForm, setGatePassForm] = useState({ student_name: '', destination: '', expected_return: '' });
   const [checkForm, setCheckForm] = useState({ student_name: '', direction: 'in', method: 'qr' });
   const [students, setStudents] = useState([]);
@@ -116,7 +119,7 @@ function SMSNotificationsDashboard({ user }) {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (category) params.set('category', category);
+      if (category) params.set('notification_type', category);
       if (search.trim()) params.set('search', search.trim());
       const response = await apiFetch(`/sms/logs${params.toString() ? `?${params}` : ''}`);
       if (!response.ok) throw new Error('Unable to load SMS logs.');
@@ -175,7 +178,7 @@ function SMSNotificationsDashboard({ user }) {
       await post('/sms/send', composeForm);
       notify('SMS sent and logged.', 'success');
       setShowCompose(false);
-      setComposeForm({ recipient_name: '', phone: '', message: '', student_id: '' });
+      setComposeForm({ recipient_name: '', phone: '', message: '', student_id: '', notification_type: 'ANNOUNCEMENT' });
       loadLogs();
     } catch (err) {
       notify(err.message, 'error');
@@ -186,10 +189,10 @@ function SMSNotificationsDashboard({ user }) {
     e.preventDefault();
     setSending(true);
     try {
-      const result = await post('/sms/announcements', announceForm);
-      notify(`Announcement published to ${result.recipients} recipient(s), ${result.sms_sent} message(s).`, 'success');
+      const result = await post('/sms/announcements', { ...announceForm, message_body: announceForm.message_body });
+      notify(`Announcement published to ${result.recipients} recipient(s), ${result.dispatch.sent} sent, ${result.dispatch.logged_only} logged.`, 'success');
       setShowAnnouncement(false);
-      setAnnounceForm({ title: '', body: '', audience: 'all', send_sms: true });
+      setAnnounceForm({ title: '', message_body: '', audience: 'everyone', dispatch_sms: true });
       loadAnnouncements();
       loadLogs();
     } catch (err) {
@@ -204,7 +207,7 @@ function SMSNotificationsDashboard({ user }) {
       const result = await post('/sms/broadcast', broadcastForm);
       notify(`Staff broadcast delivered to ${result.delivered_to} role group(s).`, 'success');
       setShowBroadcast(false);
-      setBroadcastForm({ title: '', body: '', target_roles: [] });
+      setBroadcastForm({ title: '', message_body: '', target_roles: [] });
       loadAnnouncements();
       loadLogs();
     } catch (err) {
@@ -222,7 +225,7 @@ function SMSNotificationsDashboard({ user }) {
         destination: gatePassForm.destination,
         expected_return: gatePassForm.expected_return || null,
       });
-      notify(`Gate pass notification sent to ${result.sms.recipient_name}.`, 'success');
+      notify(`Gate pass notification ${result.status === 'SENT' ? 'sent' : result.status === 'LOGGED_ONLY' ? 'logged (no live gateway)' : 'failed'} — ${result.message?.recipient_name || 'guardian'}.`, result.status === 'FAILED' ? 'error' : 'success');
       setShowGatePass(false);
       setGatePassForm({ student_name: '', destination: '', expected_return: '' });
       loadLogs();
@@ -241,7 +244,7 @@ function SMSNotificationsDashboard({ user }) {
         direction: checkForm.direction,
         method: checkForm.method,
       });
-      notify(`Check-${checkForm.direction} notification triggered (${result.student_type.replace('_', ' ')}).`, 'success');
+      notify(`Check-${checkForm.direction} notification ${result.status === 'SENT' ? 'sent' : result.status === 'LOGGED_ONLY' ? 'logged (no live gateway)' : 'failed'}.`, result.status === 'FAILED' ? 'error' : 'success');
       setShowCheck(false);
       setCheckForm({ student_name: '', direction: 'in', method: 'qr' });
       loadLogs();
@@ -297,8 +300,8 @@ function SMSNotificationsDashboard({ user }) {
       <section className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <StatCard icon={MessageSquare} label="Total Messages" value={stats.total} tone="bg-indigo-50 text-indigo-600" />
         <StatCard icon={CheckCircle2} label="Sent" value={stats.sent} tone="bg-emerald-50 text-emerald-600" />
-        <StatCard icon={Clock} label="Pending" value={stats.pending} tone="bg-amber-50 text-amber-600" />
-        <StatCard icon={Bus} label="Sent Today" value={stats.today} tone="bg-sky-50 text-sky-600" />
+        <StatCard icon={Clock} label="Logged Only" value={stats.logged_only} tone="bg-amber-50 text-amber-600" />
+        <StatCard icon={AlertTriangle} label="Failed" value={stats.failed} tone="bg-rose-50 text-rose-600" />
       </section>
 
       <div className="mb-6 flex gap-2">
@@ -358,17 +361,17 @@ function SMSNotificationsDashboard({ user }) {
                     <span className={`rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${CATEGORY_BADGE[log.category] || 'bg-slate-50 text-slate-600 border-slate-200'}`}>
                       {CATEGORY_LABEL[log.category] || log.category}
                     </span>
-                    <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${log.status === 'sent' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
-                      {log.status === 'sent' ? <CheckCircle2 size={11} /> : <Clock size={11} />} {log.status}
+                    <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${STATUS_BADGE[log.status] || STATUS_BADGE.LOGGED_ONLY}`}>
+                      {log.status === 'SENT' ? <CheckCircle2 size={11} /> : <Clock size={11} />} {log.status === 'LOGGED_ONLY' ? 'logged' : log.status.toLowerCase()}
                     </span>
-                    <span className="text-xs font-medium text-slate-500">To: {log.recipient_name} ({log.recipient_role}){log.phone ? ` · ${log.phone}` : ''}</span>
+                    <span className="text-xs font-medium text-slate-500">To: {log.recipient_name || log.recipient_phone || '—'} ({log.recipient_role}){log.recipient_phone ? ` · ${log.recipient_phone}` : ''}</span>
                   </div>
-                  <p className="mt-1.5 line-clamp-2 text-sm text-slate-800">{log.message}</p>
+                  <p className="mt-1.5 line-clamp-2 text-sm text-slate-800">{log.message_body}</p>
                   {log.student_name && <p className="mt-1 text-xs text-slate-400">Student: {log.student_name} ({log.reg_number})</p>}
                 </div>
                 <div className="text-right text-xs text-slate-400 md:w-44">
-                  <p>{new Date(log.sent_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</p>
-                  <p className="mt-0.5">by {log.sender_name} · {log.sender_role}</p>
+                  <p>{new Date(log.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}</p>
+                  <p className="mt-0.5">by {log.sent_by || 'system'}</p>
                 </div>
               </article>
             ))}
@@ -400,9 +403,9 @@ function SMSNotificationsDashboard({ user }) {
                   <Trash2 size={15} />
                 </button>
               </div>
-              <p className="mt-2 text-sm text-slate-600">{a.body}</p>
+              <p className="mt-2 text-sm text-slate-600">{a.message_body}</p>
               <p className="mt-3 text-xs text-slate-400">
-                {new Date(a.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · by {a.created_by} ({a.created_by_role})
+                {new Date(a.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · by {a.created_by_name || a.sent_by_name || 'system'}
               </p>
             </article>
           ))}
@@ -439,19 +442,19 @@ function SMSNotificationsDashboard({ user }) {
           </div>
           <div>
             <label className="text-sm font-medium text-slate-700">Message body</label>
-            <textarea required rows={4} value={announceForm.body} onChange={(e) => setAnnounceForm({ ...announceForm, body: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:bg-white" />
+            <textarea required rows={4} value={announceForm.message_body} onChange={(e) => setAnnounceForm({ ...announceForm, message_body: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:bg-white" />
           </div>
           <div className="flex items-center justify-between gap-4">
             <div>
               <label className="text-sm font-medium text-slate-700">Audience</label>
               <select value={announceForm.audience} onChange={(e) => setAnnounceForm({ ...announceForm, audience: e.target.value })} className="mt-1 block rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:bg-white">
-                <option value="all">Everyone (staff + parents)</option>
+                <option value="everyone">Everyone (staff + parents)</option>
                 <option value="parents">Parents only (SMS)</option>
                 <option value="staff">Staff only (internal)</option>
               </select>
             </div>
             <label className="flex items-center gap-2 text-sm text-slate-700">
-              <input type="checkbox" checked={announceForm.send_sms} onChange={(e) => setAnnounceForm({ ...announceForm, send_sms: e.target.checked })} className="h-4 w-4 rounded border-slate-300" />
+              <input type="checkbox" checked={announceForm.dispatch_sms} onChange={(e) => setAnnounceForm({ ...announceForm, dispatch_sms: e.target.checked })} className="h-4 w-4 rounded border-slate-300" />
               Dispatch SMS
             </label>
           </div>
@@ -471,7 +474,7 @@ function SMSNotificationsDashboard({ user }) {
           </div>
           <div>
             <label className="text-sm font-medium text-slate-700">Message</label>
-            <textarea required rows={4} value={broadcastForm.body} onChange={(e) => setBroadcastForm({ ...broadcastForm, body: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:bg-white" />
+            <textarea required rows={4} value={broadcastForm.message_body} onChange={(e) => setBroadcastForm({ ...broadcastForm, message_body: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:bg-white" />
           </div>
           <div>
             <p className="text-sm font-medium text-slate-700">Target roles (none selected = all staff)</p>
