@@ -84,6 +84,29 @@ const fileFilter = (req, file, cb) => {
 const upload = multer({ storage: storage, fileFilter: fileFilter });
 
 async function ensureDatabaseSchema() {
+  // Run the comprehensive idempotent migration first — it creates every
+  // required table, adds missing columns, repairs FK mismatches, and fails
+  // loudly (via RAISE EXCEPTION) if anything is still missing afterwards.
+  const migrationPath = path.join(__dirname, '..', 'database', '99_complete_fix.sql');
+  if (fs.existsSync(migrationPath)) {
+    const migrationSql = fs.readFileSync(migrationPath, 'utf8');
+    const migrationClient = await pool.connect();
+    try {
+      await migrationClient.query('BEGIN');
+      await migrationClient.query(migrationSql);
+      await migrationClient.query('COMMIT');
+      console.log('✅ 99_complete_fix.sql migration applied successfully.');
+    } catch (migrationError) {
+      await migrationClient.query('ROLLBACK').catch(() => {});
+      console.error('❌ 99_complete_fix migration failed:', migrationError.message);
+      throw migrationError;
+    } finally {
+      migrationClient.release();
+    }
+  } else {
+    console.warn('⚠️ database/99_complete_fix.sql not found — falling back to inline schema bootstrap.');
+  }
+
   // Relax the users.role constraint so MATRON / DOD / SECURITY accounts can exist.
   await pool.query(`
     ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
@@ -386,7 +409,15 @@ async function ensureDatabaseSchema() {
   await pool.query('ALTER TABLE announcements ADD COLUMN IF NOT EXISTS dispatch_sms BOOLEAN DEFAULT TRUE;');
   await pool.query('ALTER TABLE announcements ADD COLUMN IF NOT EXISTS sent_by INT REFERENCES users(id) ON DELETE SET NULL;');
   await pool.query('ALTER TABLE announcements ADD COLUMN IF NOT EXISTS created_by_name VARCHAR(255) NOT NULL DEFAULT \'system\';');
-  await pool.query('UPDATE announcements SET message_body = body WHERE message_body IS NULL AND body IS NOT NULL;');
+  // Legacy backfill: only touch 'body' when that legacy column actually exists.
+  await pool.query(`
+    DO $$ BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_schema = 'public' AND table_name = 'announcements' AND column_name = 'body') THEN
+        UPDATE announcements SET message_body = body WHERE message_body IS NULL AND body IS NOT NULL;
+      END IF;
+    END $$;
+  `);
   await pool.query('ALTER TABLE announcements DROP CONSTRAINT IF EXISTS announcements_audience_check;');
   await pool.query('ALTER TABLE announcements ADD CONSTRAINT announcements_audience_check CHECK (audience IN (\'parents\', \'staff\', \'everyone\'));');
   await pool.query('UPDATE announcements SET audience = \'everyone\' WHERE audience = \'all\';');
