@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  Bell, Building2, Check, DatabaseBackup, Download, Eye, EyeOff, KeyRound, Loader2, Lock, Palette,
+  Bell, Building2, Check, DatabaseBackup, Download, Eye, EyeOff, Globe, KeyRound, Languages, Loader2, Lock, Palette,
   RefreshCw, Save, School, Settings2, Shield, ShieldAlert, ShieldCheck, Sliders, Sparkles,
   Trash2, Upload, UserCircle, Users, Volume2, X,
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
+import { useLanguage, LANGUAGES } from '../context/LanguageContext';
 import { AUTH_API_BASE_URL, API_CLIENT_CONFIG, API_BASE_URL, apiFetch, safeJsonResponse } from '../api/config';
+import { useToast } from './ToastProvider';
 
 /* ----------------------------- Shared building blocks ----------------------------- */
 
@@ -62,23 +64,69 @@ function Toggle({ checked, onChange, label, description }) {
   );
 }
 
-function SaveBar({ saved, dirty, onSave, saving }) {
+function SaveBar({ saved, dirty, onSave, saving, error }) {
   return (
-    <div className="mt-5 flex items-center justify-between gap-3">
-      <p className={`text-sm font-medium transition ${saved ? 'text-emerald-600' : dirty ? 'text-amber-600' : 'text-slate-400'}`}>
-        {saved ? 'All changes saved.' : dirty ? 'You have unsaved changes.' : 'Nothing to change yet.'}
-      </p>
-      <button
-        type="button"
-        onClick={onSave}
-        disabled={!dirty || saving}
-        className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-indigo-600 to-indigo-500 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:from-indigo-500 hover:to-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
-      >
-        {saving ? <RefreshCw size={16} className="animate-spin" /> : <Save size={16} />}
-        {saving ? 'Saving…' : 'Save changes'}
-      </button>
+    <div className="mt-5">
+      {error && (
+        <p role="alert" className="mb-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-2.5 text-sm font-medium text-rose-700">{error}</p>
+      )}
+      <div className="flex items-center justify-between gap-3">
+        <p className={`text-sm font-medium transition ${saved ? 'text-emerald-600' : dirty ? 'text-amber-600' : 'text-slate-400'}`}>
+          {saving ? 'Saving…' : saved ? 'All changes saved.' : dirty ? 'You have unsaved changes.' : 'Nothing to change yet.'}
+        </p>
+        <button
+          type="button"
+          onClick={onSave}
+          disabled={!dirty || saving}
+          className="inline-flex items-center gap-2 rounded-2xl bg-gradient-to-r from-indigo-600 to-indigo-500 px-5 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:from-indigo-500 hover:to-indigo-400 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {saving ? <RefreshCw size={16} className="animate-spin" /> : <Save size={16} />}
+          {saving ? 'Saving…' : 'Save changes'}
+        </button>
+      </div>
     </div>
   );
+}
+
+/* --------------------- Server-backed settings helper hook --------------------- */
+
+function useServerSettings() {
+  const [server, setServer] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState('');
+
+  const load = async (quiet = false) => {
+    if (!quiet) setLoading(true);
+    try {
+      const response = await apiFetch('/settings');
+      const payload = await safeJsonResponse(response) || {};
+      if (!response.ok || payload.success === false) throw new Error(payload.error || 'Failed to load settings.');
+      setServer(payload.settings || {});
+      setLoadError('');
+    } catch (err) {
+      setLoadError(err.message || 'Unable to load settings from the server.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const save = async (patch) => {
+    const response = await apiFetch('/settings', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    });
+    const payload = await safeJsonResponse(response) || {};
+    if (!response.ok || payload.success === false) {
+      throw new Error(payload.error || 'Failed to save settings.');
+    }
+    setServer(payload.settings || server);
+    return payload.settings;
+  };
+
+  return { server, loading, loadError, reload: load, save };
 }
 
 /* ------------------------------ Wallpaper selector ------------------------------ */
@@ -321,33 +369,72 @@ function AccountSettings() {
 /* --------------------------------- Admin tabs ---------------------------------- */
 
 function SystemParameters() {
+  const { notify } = useToast();
+  const { server, loading, save } = useServerSettings();
   const [state, setState] = useState({ maintenance: false, autoBackup: true, sessionTimeout: '45', maxUpload: '10', timezone: 'Africa/Kigali' });
   const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
   const set = (key) => (value) => { setState((s) => ({ ...s, [key]: value })); setDirty(true); setSaved(false); };
+
+  useEffect(() => {
+    if (!server) return;
+    setState({
+      maintenance: Boolean(server.maintenance_mode),
+      autoBackup: Boolean(server.auto_backup),
+      sessionTimeout: String(server.session_timeout_minutes ?? '45'),
+      maxUpload: String(server.max_upload_mb ?? '10'),
+      timezone: server.timezone || 'Africa/Kigali',
+    });
+  }, [server]);
+
+  async function handleSave() {
+    setSaving(true); setError('');
+    try {
+      await save({
+        maintenance_mode: state.maintenance,
+        auto_backup: state.autoBackup,
+        session_timeout_minutes: Number(state.sessionTimeout) || 45,
+        max_upload_mb: Number(state.maxUpload) || 10,
+        timezone: state.timezone,
+      });
+      setSaved(true); setDirty(false);
+      notify('System parameters saved to the database.', 'success');
+    } catch (err) {
+      setError(err.message);
+      notify(err.message, 'error');
+    } finally { setSaving(false); }
+  }
 
   return (
     <div className="space-y-6">
       <Card title="System Parameters" subtitle="Platform-wide operational switches" icon={Sliders}>
-        <div className="space-y-3">
-          <Toggle checked={state.maintenance} onChange={set('maintenance')} label="Maintenance mode" description="Temporarily lock the portal for non-admin users" />
-          <Toggle checked={state.autoBackup} onChange={set('autoBackup')} label="Automatic nightly backup" description="Runs at 23:00 CAT to the configured backup vault" />
-        </div>
-        <div className="mt-4 grid gap-4 sm:grid-cols-3">
-          <Field label="Session timeout (minutes)">
-            <input className={inputClass} type="number" value={state.sessionTimeout} onChange={(e) => set('sessionTimeout')(e.target.value)} />
-          </Field>
-          <Field label="Max upload size (MB)">
-            <input className={inputClass} type="number" value={state.maxUpload} onChange={(e) => set('maxUpload')(e.target.value)} />
-          </Field>
-          <Field label="Timezone">
-            <select className={inputClass} value={state.timezone} onChange={(e) => set('timezone')(e.target.value)}>
-              <option value="Africa/Kigali">Africa/Kigali (CAT)</option>
-              <option value="UTC">UTC</option>
-            </select>
-          </Field>
-        </div>
-        <SaveBar saved={saved} dirty={dirty} onSave={() => { setSaved(true); setDirty(false); }} saving={false} />
+        {loading ? (
+          <p className="flex items-center gap-2 text-sm text-slate-500"><Loader2 size={16} className="animate-spin" /> Loading current settings…</p>
+        ) : (
+          <>
+            <div className="space-y-3">
+              <Toggle checked={state.maintenance} onChange={set('maintenance')} label="Maintenance mode" description="Temporarily lock the portal for non-admin users" />
+              <Toggle checked={state.autoBackup} onChange={set('autoBackup')} label="Automatic nightly backup" description="Runs at 23:00 CAT to the configured backup vault" />
+            </div>
+            <div className="mt-4 grid gap-4 sm:grid-cols-3">
+              <Field label="Session timeout (minutes)">
+                <input className={inputClass} type="number" value={state.sessionTimeout} onChange={(e) => set('sessionTimeout')(e.target.value)} />
+              </Field>
+              <Field label="Max upload size (MB)">
+                <input className={inputClass} type="number" value={state.maxUpload} onChange={(e) => set('maxUpload')(e.target.value)} />
+              </Field>
+              <Field label="Timezone">
+                <select className={inputClass} value={state.timezone} onChange={(e) => set('timezone')(e.target.value)}>
+                  <option value="Africa/Kigali">Africa/Kigali (CAT)</option>
+                  <option value="UTC">UTC</option>
+                </select>
+              </Field>
+            </div>
+            <SaveBar saved={saved} dirty={dirty} onSave={handleSave} saving={saving} error={error} />
+          </>
+        )}
       </Card>
 
       <Card title="Backup & Restore" subtitle="Protect school data with point-in-time snapshots" icon={DatabaseBackup} accent="from-slate-700 to-slate-900">
@@ -366,6 +453,8 @@ function SystemParameters() {
 }
 
 function SchoolDetails() {
+  const { notify } = useToast();
+  const { server, loading, save } = useServerSettings();
   const [details, setDetails] = useState({
     name: 'Musanze Hub Polytechnic College',
     shortName: 'MIPC',
@@ -376,85 +465,203 @@ function SchoolDetails() {
   });
   const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!server) return;
+    setDetails({
+      name: server.school_name || details.name,
+      shortName: server.school_short_name || details.shortName,
+      address: server.school_address || details.address,
+      phone: server.school_phone || details.phone,
+      email: server.school_email || details.email,
+      motto: server.school_motto || details.motto,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [server]);
+
+  const setField = (key) => (value) => { setDetails((d) => ({ ...d, [key]: value })); setDirty(true); setSaved(false); };
+
+  async function handleSave() {
+    setSaving(true); setError('');
+    try {
+      await save({
+        school_name: details.name,
+        school_short_name: details.shortName,
+        school_address: details.address,
+        school_phone: details.phone,
+        school_email: details.email,
+        school_motto: details.motto,
+      });
+      setSaved(true); setDirty(false);
+      notify('School details saved to the database.', 'success');
+    } catch (err) {
+      setError(err.message);
+      notify(err.message, 'error');
+    } finally { setSaving(false); }
+  }
 
   return (
     <Card title="School Details" subtitle="Official Musanze Hub institution profile" icon={Building2}>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Institution name">
-          <input className={inputClass} value={details.name} onChange={(e) => { setDetails({ ...details, name: e.target.value }); setDirty(true); setSaved(false); }} />
-        </Field>
-        <Field label="Short name / abbreviation">
-          <input className={inputClass} value={details.shortName} onChange={(e) => { setDetails({ ...details, shortName: e.target.value }); setDirty(true); setSaved(false); }} />
-        </Field>
-        <Field label="Physical address">
-          <input className={inputClass} value={details.address} onChange={(e) => { setDetails({ ...details, address: e.target.value }); setDirty(true); setSaved(false); }} />
-        </Field>
-        <Field label="Contact phone">
-          <input className={inputClass} value={details.phone} onChange={(e) => { setDetails({ ...details, phone: e.target.value }); setDirty(true); setSaved(false); }} />
-        </Field>
-        <Field label="Official email">
-          <input className={inputClass} value={details.email} onChange={(e) => { setDetails({ ...details, email: e.target.value }); setDirty(true); setSaved(false); }} />
-        </Field>
-        <Field label="Motto">
-          <input className={inputClass} value={details.motto} onChange={(e) => { setDetails({ ...details, motto: e.target.value }); setDirty(true); setSaved(false); }} />
-        </Field>
-      </div>
-      <SaveBar saved={saved} dirty={dirty} onSave={() => { setSaved(true); setDirty(false); }} saving={false} />
+      {loading ? (
+        <p className="flex items-center gap-2 text-sm text-slate-500"><Loader2 size={16} className="animate-spin" /> Loading school profile…</p>
+      ) : (
+        <>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Institution name">
+              <input className={inputClass} value={details.name} onChange={(e) => setField('name')(e.target.value)} />
+            </Field>
+            <Field label="Short name / abbreviation">
+              <input className={inputClass} value={details.shortName} onChange={(e) => setField('shortName')(e.target.value)} />
+            </Field>
+            <Field label="Physical address">
+              <input className={inputClass} value={details.address} onChange={(e) => setField('address')(e.target.value)} />
+            </Field>
+            <Field label="Contact phone">
+              <input className={inputClass} value={details.phone} onChange={(e) => setField('phone')(e.target.value)} />
+            </Field>
+            <Field label="Official email">
+              <input className={inputClass} value={details.email} onChange={(e) => setField('email')(e.target.value)} />
+            </Field>
+            <Field label="Motto">
+              <input className={inputClass} value={details.motto} onChange={(e) => setField('motto')(e.target.value)} />
+            </Field>
+          </div>
+          <SaveBar saved={saved} dirty={dirty} onSave={handleSave} saving={saving} error={error} />
+        </>
+      )}
     </Card>
   );
 }
 
 function ConduitSettings() {
+  const { notify } = useToast();
+  const { server, loading, save } = useServerSettings();
   const [state, setState] = useState({ pickupWindow: '40', handoverGrace: '12', alertThreshold: '75', autoEscalate: true });
   const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
   const set = (key) => (value) => { setState((s) => ({ ...s, [key]: value })); setDirty(true); setSaved(false); };
+
+  useEffect(() => {
+    if (!server) return;
+    setState({
+      pickupWindow: String(server.conduit_pickup_window ?? '40'),
+      handoverGrace: String(server.conduit_handover_grace ?? '12'),
+      alertThreshold: String(server.conduit_alert_threshold ?? '75'),
+      autoEscalate: server.conduit_auto_escalate !== false,
+    });
+  }, [server]);
+
+  async function handleSave() {
+    setSaving(true); setError('');
+    try {
+      await save({
+        conduit_pickup_window: Number(state.pickupWindow) || 40,
+        conduit_handover_grace: Number(state.handoverGrace) || 12,
+        conduit_alert_threshold: Number(state.alertThreshold) || 75,
+        conduit_auto_escalate: state.autoEscalate,
+      });
+      setSaved(true); setDirty(false);
+      notify('Conduit settings saved to the database.', 'success');
+    } catch (err) {
+      setError(err.message);
+      notify(err.message, 'error');
+    } finally { setSaving(false); }
+  }
 
   return (
     <Card title="Global 40-Point Conduit Settings" subtitle="Gate-to-parent handover conduit policy for all hubs" icon={School} accent="from-emerald-500 to-emerald-600">
-      <div className="grid gap-4 sm:grid-cols-3">
-        <Field label="Pickup window (minutes)">
-          <input className={inputClass} type="number" value={state.pickupWindow} onChange={(e) => set('pickupWindow')(e.target.value)} />
-        </Field>
-        <Field label="Handover grace (minutes)">
-          <input className={inputClass} type="number" value={state.handoverGrace} onChange={(e) => set('handoverGrace')(e.target.value)} />
-        </Field>
-        <Field label="Conduit health alert at (%)">
-          <input className={inputClass} type="number" value={state.alertThreshold} onChange={(e) => set('alertThreshold')(e.target.value)} />
-        </Field>
-      </div>
-      <div className="mt-4">
-        <Toggle checked={state.autoEscalate} onChange={set('autoEscalate')} label="Auto-escalate stalled conduits" description="Notify DOD and Security when a conduit stalls beyond grace" />
-      </div>
-      <SaveBar saved={saved} dirty={dirty} onSave={() => { setSaved(true); setDirty(false); }} saving={false} />
+      {loading ? (
+        <p className="flex items-center gap-2 text-sm text-slate-500"><Loader2 size={16} className="animate-spin" /> Loading conduit policy…</p>
+      ) : (
+        <>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <Field label="Pickup window (minutes)">
+              <input className={inputClass} type="number" value={state.pickupWindow} onChange={(e) => set('pickupWindow')(e.target.value)} />
+            </Field>
+            <Field label="Handover grace (minutes)">
+              <input className={inputClass} type="number" value={state.handoverGrace} onChange={(e) => set('handoverGrace')(e.target.value)} />
+            </Field>
+            <Field label="Conduit health alert at (%)">
+              <input className={inputClass} type="number" value={state.alertThreshold} onChange={(e) => set('alertThreshold')(e.target.value)} />
+            </Field>
+          </div>
+          <div className="mt-4">
+            <Toggle checked={state.autoEscalate} onChange={set('autoEscalate')} label="Auto-escalate stalled conduits" description="Notify DOD and Security when a conduit stalls beyond grace" />
+          </div>
+          <SaveBar saved={saved} dirty={dirty} onSave={handleSave} saving={saving} error={error} />
+        </>
+      )}
     </Card>
   );
 }
 
 function BellConfiguration() {
+  const { notify } = useToast();
+  const { server, loading, save } = useServerSettings();
   const [state, setState] = useState({ enabled: true, morning: '07:30', lunch: '12:30', dismissal: '16:00', volume: '70' });
   const [dirty, setDirty] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
   const set = (key) => (value) => { setState((s) => ({ ...s, [key]: value })); setDirty(true); setSaved(false); };
+
+  useEffect(() => {
+    if (!server) return;
+    setState({
+      enabled: server.bell_enabled !== false,
+      morning: server.bell_morning || '07:30',
+      lunch: server.bell_lunch || '12:30',
+      dismissal: server.bell_dismissal || '16:00',
+      volume: String(server.bell_volume ?? '70'),
+    });
+  }, [server]);
+
+  async function handleSave() {
+    setSaving(true); setError('');
+    try {
+      await save({
+        bell_enabled: state.enabled,
+        bell_morning: state.morning,
+        bell_lunch: state.lunch,
+        bell_dismissal: state.dismissal,
+        bell_volume: Number(state.volume) || 0,
+      });
+      setSaved(true); setDirty(false);
+      notify('Smart Bell configuration saved to the database.', 'success');
+    } catch (err) {
+      setError(err.message);
+      notify(err.message, 'error');
+    } finally { setSaving(false); }
+  }
 
   return (
     <Card title="IoT Smart Bell Configuration" subtitle="Schedule and volume for campus IoT bell relays" icon={Bell} accent="from-amber-500 to-orange-600">
-      <Toggle checked={state.enabled} onChange={set('enabled')} label="IoT bell enabled" description="Rings automatically on the configured schedule" />
-      <div className="mt-4 grid gap-4 sm:grid-cols-3">
-        <Field label="Morning bell">
-          <input className={inputClass} type="time" value={state.morning} onChange={(e) => set('morning')(e.target.value)} />
-        </Field>
-        <Field label="Lunch bell">
-          <input className={inputClass} type="time" value={state.lunch} onChange={(e) => set('lunch')(e.target.value)} />
-        </Field>
-        <Field label="Dismissal bell">
-          <input className={inputClass} type="time" value={state.dismissal} onChange={(e) => set('dismissal')(e.target.value)} />
-        </Field>
-        <Field label="Volume (0–100)">
-          <input className={inputClass} type="range" min="0" max="100" value={state.volume} onChange={(e) => set('volume')(e.target.value)} />
-        </Field>
-      </div>
-      <SaveBar saved={saved} dirty={dirty} onSave={() => { setSaved(true); setDirty(false); }} saving={false} />
+      {loading ? (
+        <p className="flex items-center gap-2 text-sm text-slate-500"><Loader2 size={16} className="animate-spin" /> Loading bell configuration…</p>
+      ) : (
+        <>
+          <Toggle checked={state.enabled} onChange={set('enabled')} label="IoT bell enabled" description="Rings automatically on the configured schedule" />
+          <div className="mt-4 grid gap-4 sm:grid-cols-3">
+            <Field label="Morning bell">
+              <input className={inputClass} type="time" value={state.morning} onChange={(e) => set('morning')(e.target.value)} />
+            </Field>
+            <Field label="Lunch bell">
+              <input className={inputClass} type="time" value={state.lunch} onChange={(e) => set('lunch')(e.target.value)} />
+            </Field>
+            <Field label="Dismissal bell">
+              <input className={inputClass} type="time" value={state.dismissal} onChange={(e) => set('dismissal')(e.target.value)} />
+            </Field>
+            <Field label={`Volume (${state.volume}/100)`}>
+              <input className={inputClass} type="range" min="0" max="100" value={state.volume} onChange={(e) => set('volume')(e.target.value)} />
+            </Field>
+          </div>
+          <SaveBar saved={saved} dirty={dirty} onSave={handleSave} saving={saving} error={error} />
+        </>
+      )}
     </Card>
   );
 }
@@ -965,6 +1172,80 @@ function DisciplineThresholds() {
       );
 }
 
+      /* ------------------------- Language & Localization tab ------------------------- */
+
+      function LanguageLocalization() {
+        const { language, setLanguage, t } = useLanguage();
+        const { notify } = useToast();
+        const [changing, setChanging] = useState('');
+
+        async function choose(lang) {
+          if (lang.id === language) return;
+          setChanging(lang.id);
+          try {
+            await setLanguage(lang); // updates context instantly + persists to backend/localStorage
+            notify(`Language switched to ${lang.label}.`, 'success');
+          } catch {
+            notify('Language applied on this device, but server persistence failed.', 'warning');
+          } finally {
+            setChanging('');
+          }
+        }
+
+        return (
+          <div className="space-y-6">
+            <Card title="Language & Localization" subtitle="Choose your preferred system language — applied instantly across the app" icon={Languages} accent="from-sky-500 to-indigo-600">
+              <div className="grid gap-3 sm:grid-cols-2">
+                {LANGUAGES.map((lang) => {
+                  const active = lang.id === language;
+                  return (
+                    <button
+                      key={lang.id}
+                      type="button"
+                      onClick={() => choose(lang)}
+                      disabled={changing === lang.id}
+                      className={`flex items-center gap-4 rounded-2xl border-2 p-4 text-left transition ${
+                        active
+                          ? 'border-indigo-500 bg-indigo-50 shadow-lg shadow-indigo-500/20'
+                          : 'border-slate-200 bg-white hover:border-indigo-200 hover:shadow-sm'
+                      } disabled:opacity-70`}
+                    >
+                      <span className="text-3xl" aria-hidden="true">{lang.flag}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm font-bold text-slate-900">{lang.label}</span>
+                        <span className="block text-xs text-slate-400">{active ? 'Currently active' : 'Tap to switch the entire portal'}</span>
+                      </span>
+                      {changing === lang.id ? (
+                        <Loader2 size={18} className="animate-spin text-indigo-600" />
+                      ) : active ? (
+                        <span className="flex h-7 w-7 items-center justify-center rounded-full bg-indigo-600 text-white shadow-lg">
+                          <Check size={14} />
+                        </span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+              <p className="mt-4 flex items-start gap-2 rounded-2xl bg-slate-50 px-4 py-3 text-xs text-slate-500">
+                <Globe size={14} className="mt-0.5 shrink-0 text-indigo-500" />
+                Your choice updates menu items, buttons and headers immediately, is remembered on this device, and is saved as the system language for your account where permitted.
+              </p>
+            </Card>
+
+            <Card title="Live Preview" subtitle="Sample of translated interface labels with the current language" icon={Sparkles} accent="from-fuchsia-500 to-purple-600">
+              <div className="grid gap-2 sm:grid-cols-2">
+                {['dashboard', 'students', 'attendance', 'permissions', 'discipline', 'transport', 'sms_center', 'settings'].map((key) => (
+                  <div key={key} className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3">
+                    <span className="text-xs uppercase tracking-wide text-slate-400">{key}</span>
+                    <span className="text-sm font-semibold text-slate-800">{t[key]}</span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </div>
+        );
+      }
+
       /* -------------------------------- Security tabs --------------------------------- */
 
       function GateLogRefresh() {
@@ -1045,6 +1326,11 @@ function DisciplineThresholds() {
       {id: 'account', label: 'Account Settings', icon: UserCircle, content: AccountSettings },
       ],
 };
+
+      // Language & Localization is available to every role.
+      for (const roleTabs of Object.values(TAB_SECTIONS)) {
+        roleTabs.splice(roleTabs.length - 1, 0, { id: 'language', label: 'Language & Localization', icon: Languages, content: LanguageLocalization });
+      }
 
       export default function Settings() {
   const {user} = useAuth();

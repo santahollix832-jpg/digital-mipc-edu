@@ -11,6 +11,7 @@ const conduitRouter = require('./routes/conduit');
 const attendanceRouter = require('./routes/attendance');
 const transportRouter = require('./routes/transport');
 const smsRouter = require('./routes/sms');
+const settingsRouter = require('./routes/settings');
 const bellRouter = require('./routes/bell');
 const authRouter = require('./routes/auth');
 const usersRouter = require('./routes/users');
@@ -452,6 +453,10 @@ app.use('/api/transport', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD', 'SECU
 // SMS & Notifications Center: every staff role can view logs; all listed staff
 // roles may trigger automated notifications, announcements and staff broadcasts.
 app.use('/api/sms', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD', 'TEACHER', 'BURSAR', 'SECURITY'), smsRouter);
+
+// System settings: every authenticated staff role can read; writes are gated
+// per key group inside the route (ADMIN may change everything).
+app.use('/api/settings', settingsRouter);
 
 // Connect IoT smart bell module route
 // Read access (schedules, device health, ring log) is open to every authenticated

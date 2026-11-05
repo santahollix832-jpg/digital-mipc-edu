@@ -159,21 +159,21 @@ function App() {
   return (
     <BrowserRouter>
       <AuthProvider>
-        <LanguageProvider>
-          <ThemeProviderWrapper>
+        <ThemeProviderWrapper>
+          <LanguageProvider>
             <ToastProvider>
-          <Routes>
-            <Route path="/login" element={<LoginPage />} />
-            <Route path="/register" element={<RegisterRoute />} />
-            <Route path="*" element={
-              <ProtectedRoute>
-                <AuthenticatedApp />
-              </ProtectedRoute>
-            } />
-                    </Routes>
-        </ToastProvider>
+              <Routes>
+                <Route path="/login" element={<LoginPage />} />
+                <Route path="/register" element={<RegisterRoute />} />
+                <Route path="*" element={
+                  <ProtectedRoute>
+                    <AuthenticatedApp />
+                  </ProtectedRoute>
+                } />
+              </Routes>
+            </ToastProvider>
+          </LanguageProvider>
         </ThemeProviderWrapper>
-        </LanguageProvider>
       </AuthProvider>
     </BrowserRouter>
   );

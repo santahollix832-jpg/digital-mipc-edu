@@ -6,17 +6,18 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
 import { useTheme } from '../theme/ThemeContext';
+import { useLanguage } from '../context/LanguageContext';
 
 const menuItems = [
-  { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD', 'SECURITY'] },
-  { label: 'Student Directory', to: '/students', icon: Users, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD'] },
-  { label: 'Attendance', to: '/attendance', icon: CalendarCheck2, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD', 'TEACHER'] },
-  { label: 'Permissions', to: '/permissions', icon: BookOpenCheck, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD'] },
-  { label: 'Discipline', to: '/discipline', icon: ShieldAlert, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD'] },
-  { label: 'Transport Tracking', to: '/transport', icon: Bus, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD', 'SECURITY'] },
-  { label: 'SMS Center', to: '/sms', icon: MessageSquareText, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD', 'TEACHER', 'BURSAR', 'SECURITY'] },
-  { label: 'Gate Return Tracking', to: '/gate', icon: ShieldAlert, roles: ['SECURITY', 'ADMIN'] },
-  { label: 'Smart Bell', to: '/smart-bell', icon: BellRing, roles: ['ADMIN', 'TEACHER', 'PATRON', 'MATRON', 'DOD', 'SECURITY'] },
+  { label: 'Dashboard', to: '/dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD', 'SECURITY'], tKey: 'dashboard' },
+  { label: 'Student Directory', to: '/students', icon: Users, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD'], tKey: 'students' },
+  { label: 'Attendance', to: '/attendance', icon: CalendarCheck2, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD', 'TEACHER'], tKey: 'attendance' },
+  { label: 'Permissions', to: '/permissions', icon: BookOpenCheck, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD'], tKey: 'permissions' },
+  { label: 'Discipline', to: '/discipline', icon: ShieldAlert, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD'], tKey: 'discipline' },
+  { label: 'Transport Tracking', to: '/transport', icon: Bus, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD', 'SECURITY'], tKey: 'transport' },
+  { label: 'SMS Center', to: '/sms', icon: MessageSquareText, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD', 'TEACHER', 'BURSAR', 'SECURITY'], tKey: 'sms_center' },
+  { label: 'Gate Return Tracking', to: '/gate', icon: ShieldAlert, roles: ['SECURITY', 'ADMIN'], tKey: 'gate' },
+  { label: 'Smart Bell', to: '/smart-bell', icon: BellRing, roles: ['ADMIN', 'TEACHER', 'PATRON', 'MATRON', 'DOD', 'SECURITY'], tKey: 'smart_bell' },
 ];
 
 function SignOutModal({ open, busy, onCancel, onConfirm }) {
@@ -75,6 +76,7 @@ function SignOutModal({ open, busy, onCancel, onConfirm }) {
 function Sidebar({ user, isOpen, onClose }) {
   const { logout } = useAuth();
   const { wallpaper } = useTheme();
+  const { t } = useLanguage();
   const navigate = useNavigate();
   const [logoutError, setLogoutError] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -152,7 +154,7 @@ function Sidebar({ user, isOpen, onClose }) {
         </div>
 
         <nav aria-label="Main navigation" className="flex-1 space-y-1 px-3 pb-4">
-          {navItems.map(({ label, to, icon: Icon }) => (
+          {navItems.map(({ tKey, label, to, icon: Icon }) => (
             <NavLink
               key={to}
               to={to}
@@ -168,7 +170,7 @@ function Sidebar({ user, isOpen, onClose }) {
               }
             >
               <Icon size={18} className={collapsed ? '' : 'shrink-0'} />
-              {!collapsed && <span className="truncate">{label}</span>}
+              {!collapsed && <span className="truncate">{t[tKey] || label}</span>}
             </NavLink>
           ))}
 
@@ -186,7 +188,7 @@ function Sidebar({ user, isOpen, onClose }) {
             }
           >
             <SettingsIcon size={18} className={collapsed ? '' : 'shrink-0'} />
-            {!collapsed && <span className="truncate">Settings</span>}
+            {!collapsed && <span className="truncate">{t.settings}</span>}
           </NavLink>
         </nav>
 
@@ -202,7 +204,7 @@ function Sidebar({ user, isOpen, onClose }) {
             type="button"
           >
             <LogOut size={18} />
-            {!collapsed && <span>Sign out</span>}
+            {!collapsed && <span>{t.sign_out}</span>}
           </button>
         </div>
       </aside>

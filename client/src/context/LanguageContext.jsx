@@ -1,7 +1,15 @@
 import { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import { apiFetch } from '../api/config';
+
+export const LANGUAGES = [
+  { id: 'en', label: 'English', flag: '🇬🇧' },
+  { id: 'fr', label: 'Français', flag: '🇫🇷' },
+  { id: 'sw', label: 'Kiswahili', flag: '🇰🇪' },
+  { id: 'rw', label: 'Ikinyarwanda', flag: '🇷🇼' },
+];
 
 const translations = {
-  English: {
+  en: {
     dashboard: 'Dashboard',
     students: 'Students',
     attendance: 'Attendance',
@@ -9,6 +17,7 @@ const translations = {
     discipline: 'Discipline',
     transport: 'Transport',
     gate: 'Gate Return',
+    sms_center: 'SMS Center',
     smart_bell: 'Smart Bell',
     settings: 'Settings',
     sign_out: 'Sign Out',
@@ -31,7 +40,7 @@ const translations = {
     unsaved_changes: 'You have unsaved changes.',
     all_saved: 'All changes saved.',
   },
-  Français: {
+  fr: {
     dashboard: 'Tableau de bord',
     students: 'Étudiants',
     attendance: 'Présence',
@@ -39,6 +48,7 @@ const translations = {
     discipline: 'Discipline',
     transport: 'Transport',
     gate: 'Retour Porte',
+    sms_center: 'Centre SMS',
     smart_bell: 'Cloche Intelligente',
     settings: 'Paramètres',
     sign_out: 'Déconnexion',
@@ -61,7 +71,7 @@ const translations = {
     unsaved_changes: 'Vous avez des modifications non enregistrées.',
     all_saved: 'Toutes les modifications sont enregistrées.',
   },
-  Kiswahili: {
+  sw: {
     dashboard: 'Dashibodi',
     students: 'Wanafunzi',
     attendance: 'Mahudhurio',
@@ -69,6 +79,7 @@ const translations = {
     discipline: 'Nidhamu',
     transport: 'Usafiri',
     gate: 'Kurudi Lango',
+    sms_center: 'Kituo cha SMS',
     smart_bell: 'Kengele Mahiri',
     settings: 'Mipangilio',
     sign_out: 'Ondoka',
@@ -91,7 +102,7 @@ const translations = {
     unsaved_changes: 'Una mabadiliko ambayo hayajahifadhiwa.',
     all_saved: 'Mabadiliko yote yamehifadhiwa.',
   },
-  Ikinyarwanda: {
+  rw: {
     dashboard: 'Imbonerahamwe',
     students: 'Abanyeshuri',
     attendance: 'Imyitwarire',
@@ -99,6 +110,7 @@ const translations = {
     discipline: 'Ibihano',
     transport: 'Gutwara',
     gate: 'Irembo',
+    sms_center: 'Ikigega cya SMS',
     smart_bell: 'Inzogera',
     settings: 'Igenamiterere',
     sign_out: 'Sohoka',
@@ -126,22 +138,57 @@ const translations = {
 const LanguageContext = createContext(null);
 
 export function LanguageProvider({ children }) {
-  const [language, setLanguage] = useState(() => {
-    return localStorage.getItem('mipc:language') || 'English';
-  });
+  const [language, setLanguageState] = useState(() => localStorage.getItem('mipc:language') || 'en');
+  const [hydrated, setHydrated] = useState(false);
+
+  // Load the persisted system language once on mount (if the user is signed in).
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await apiFetch('/settings');
+        if (response.ok) {
+          const payload = await response.json().catch(() => ({}));
+          const stored = payload?.settings?.system_language;
+          if (!cancelled && stored && translations[stored] && stored !== language) {
+            setLanguageState(stored);
+          }
+        }
+      } catch { /* offline — fall back to localStorage value */ }
+      if (!cancelled) setHydrated(true);
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('mipc:language', language);
+    document.documentElement.lang = language;
   }, [language]);
 
-  const t = useMemo(() => translations[language] || translations.English, [language]);
+  const t = useMemo(() => translations[language] || translations.en, [language]);
+
+  const setLanguage = async (next) => {
+    const value = typeof next === 'object' ? next.id : next;
+    if (!translations[value]) return;
+    setLanguageState(value);
+    // Best-effort persistence to the backend so the choice survives across devices.
+    try {
+      await apiFetch('/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ system_language: value }),
+      });
+    } catch { /* localStorage already keeps the choice for this device */ }
+  };
 
   const value = useMemo(() => ({
     language,
     setLanguage,
     t,
-    languages: Object.keys(translations),
-  }), [language, t]);
+    hydrated,
+    languages: LANGUAGES,
+  }), [language, t, hydrated]);
 
   return <LanguageContext.Provider value={value}>{children}</LanguageContext.Provider>;
 }
