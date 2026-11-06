@@ -772,7 +772,14 @@ export default function SchoolFees() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/5">
-                    {(expanded[c.class_name] ? c.students : c.students.slice(0, 5)).map((s) => (
+                    {(expanded[c.class_name] ? c.students : c.students.slice(0, 5)).map((sRaw) => {
+                      // Accept either total_paid/paid_amount naming from the API.
+                      const s = {
+                        ...sRaw,
+                        total_paid: Number(sRaw.total_paid ?? sRaw.paid_amount ?? 0),
+                        balance: Number(sRaw.balance ?? sRaw.remaining_balance ?? 0),
+                      };
+                      return (
                       <tr key={s.student_id} className="transition hover:bg-white/[0.04]">
                         <td className="px-5 py-3 font-medium text-white">{s.student_name}</td>
                         <td className="px-5 py-3 font-mono text-xs text-slate-400">{s.reg_number || '—'}</td>
@@ -794,7 +801,8 @@ export default function SchoolFees() {
                           </div>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

@@ -201,10 +201,18 @@ router.get('/overview', async (req, res) => {
     }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
-    // 1. Students (+ per-student paid totals from the payments table).
+    // 1. Students (+ per-student paid totals aggregated from the payments table
+    //    grouped by student_id, so PAID always reflects SUM of all payments).
+    const paidByStudent = new Map();
+    const paidAgg = (await pool.query(
+      `SELECT student_id, COALESCE(SUM(${amountCol}), 0)::NUMERIC AS total_paid
+       FROM ${paymentsTable}
+       GROUP BY student_id`
+    )).rows;
+    for (const p of paidAgg) paidByStudent.set(Number(p.student_id), money(p.total_paid));
+
     const studentRows = (await pool.query(
-      `SELECT s.id AS student_id, s.name AS student_name, s.class, s.reg_number,
-              COALESCE((SELECT SUM(fp.${amountCol}) FROM ${paymentsTable} fp WHERE fp.student_id = s.id), 0)::NUMERIC AS total_paid
+      `SELECT s.id AS student_id, s.name AS student_name, s.class, s.reg_number
        FROM students s
        ${whereSql}
        ORDER BY s.class ASC, s.name ASC`,
@@ -247,7 +255,7 @@ router.get('/overview', async (req, res) => {
     // 4. Assemble per-student rows.
     const students = studentRows.map((r) => {
       const required = money(accountByStudent.get(r.student_id) ?? structureByClass.get(r.class) ?? 0);
-      const paid = money(r.total_paid);
+      const paid = money(paidByStudent.get(Number(r.student_id)) ?? 0);
       return {
         student_id: r.student_id,
         student_name: r.student_name,
