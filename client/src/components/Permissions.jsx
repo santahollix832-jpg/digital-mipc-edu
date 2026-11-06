@@ -272,37 +272,49 @@ function Permissions() {
 
             <label className="block md:col-span-2">
               <span className="mb-2 block text-sm font-medium text-slate-700">Reason</span>
-              <textarea
+                            <textarea
                 name="reason"
                 value={form.reason}
                 onChange={handleInputChange}
                 rows="3"
                 placeholder="Provide a short explanation for the leave request"
                 className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:bg-white"
+                spellCheck="true"
+                autoComplete="on"
+                autoCorrect="on"
+                autoCapitalize="sentences"
               />
             </label>
 
             <label className="block">
               <span className="mb-2 block text-sm font-medium text-slate-700">Departure Time</span>
-              <input
+                            <input
                 type="datetime-local"
                 name="departure_time"
                 value={form.departure_time}
                 onChange={handleInputChange}
                 required
                 className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:bg-white"
+                spellCheck="true"
+                autoComplete="on"
+                autoCorrect="on"
+                autoCapitalize="sentences"
               />
             </label>
 
             <label className="block">
               <span className="mb-2 block text-sm font-medium text-slate-700">Expected Return Time</span>
-              <input
+                            <input
                 type="datetime-local"
                 name="expected_return_time"
                 value={form.expected_return_time}
                 onChange={handleInputChange}
                 required
                 className="w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none transition focus:border-indigo-400 focus:bg-white"
+                spellCheck="true"
+                autoComplete="on"
+                autoCorrect="on"
+                autoCapitalize="sentences"
               />
             </label>
 
@@ -395,11 +407,15 @@ function Permissions() {
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
+                            <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder="Search student or reason"
                 className="w-full rounded-xl border border-slate-200 bg-slate-50 py-2.5 pl-9 pr-3 text-sm outline-none transition focus:border-indigo-400 focus:bg-white sm:w-64"
+                spellCheck="true"
+                autoComplete="on"
+                autoCorrect="on"
+                autoCapitalize="sentences"
               />
             </div>
             <div className="relative">

@@ -193,6 +193,10 @@ const IncidentForm = () => {
                       className={`${inputClasses} pl-10`}
                       value={formData.date}
                       onChange={(e) => setFormData({...formData, date: e.target.value})}
+                      spellCheck="true"
+                      autoComplete="on"
+                      autoCorrect="on"
+                      autoCapitalize="sentences"
                     />
                   </div>
                 </div>
@@ -205,6 +209,10 @@ const IncidentForm = () => {
                       className={`${inputClasses} pl-10`}
                       value={formData.time}
                       onChange={(e) => setFormData({...formData, time: e.target.value})}
+                      spellCheck="true"
+                      autoComplete="on"
+                      autoCorrect="on"
+                      autoCapitalize="sentences"
                     />
                   </div>
                 </div>
@@ -223,6 +231,10 @@ const IncidentForm = () => {
                 value={formData.description}
                 onChange={(e) => setFormData({...formData, description: e.target.value})}
                 required
+                spellCheck="true"
+                autoComplete="on"
+                autoCorrect="on"
+                autoCapitalize="sentences"
               ></textarea>
             </div>
           </div>
@@ -237,6 +249,10 @@ const IncidentForm = () => {
                 value={formData.reportedBy}
                 onChange={(e) => setFormData({...formData, reportedBy: e.target.value})}
                 required
+                spellCheck="true"
+                autoComplete="on"
+                autoCorrect="on"
+                autoCapitalize="sentences"
               />
             </div>
             <div>
@@ -247,6 +263,10 @@ const IncidentForm = () => {
                 placeholder="e.g., Verbal warning, Counseling..."
                 value={formData.actionTaken}
                 onChange={(e) => setFormData({...formData, actionTaken: e.target.value})}
+                spellCheck="true"
+                autoComplete="on"
+                autoCorrect="on"
+                autoCapitalize="sentences"
               />
             </div>
           </div>
