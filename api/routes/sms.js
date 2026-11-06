@@ -28,6 +28,44 @@ function actorName(req) {
   return req.user?.full_name || req.user?.username || 'system';
 }
 
+// Legacy installs may still carry a `body TEXT NOT NULL` column on
+// announcements. Detect it once per process so INSERTs can populate both
+// `body` and `message_body` and never trip the NOT NULL constraint.
+let ANNOUNCEMENTS_HAS_LEGACY_BODY = null;
+async function announcementsHasLegacyBody() {
+  if (ANNOUNCEMENTS_HAS_LEGACY_BODY === null) {
+    try {
+      const result = await pool.query(
+        `SELECT 1 FROM information_schema.columns
+         WHERE table_schema = 'public'
+           AND table_name = 'announcements'
+           AND column_name = 'body'`
+      );
+      ANNOUNCEMENTS_HAS_LEGACY_BODY = result.rowCount > 0;
+    } catch (err) {
+      console.error('ANNOUNCEMENTS_SCHEMA_CHECK_ERROR:', err);
+      ANNOUNCEMENTS_HAS_LEGACY_BODY = false;
+    }
+  }
+  return ANNOUNCEMENTS_HAS_LEGACY_BODY;
+}
+
+async function insertAnnouncement({ title, messageBody, audience, dispatchSms, sentBy, createdByName }) {
+  const hasLegacyBody = await announcementsHasLegacyBody();
+  const columns = ['title', 'message_body', 'audience', 'dispatch_sms', 'sent_by', 'created_by_name'];
+  const values = [title, messageBody, audience, dispatchSms, sentBy, createdByName];
+  if (hasLegacyBody) {
+    columns.push('body');
+    values.push(messageBody);
+  }
+  const placeholders = columns.map((_, i) => `$${i + 1}`).join(', ');
+  const inserted = await pool.query(
+    `INSERT INTO announcements (${columns.join(', ')}) VALUES (${placeholders}) RETURNING *;`,
+    values
+  );
+  return inserted.rows[0];
+}
+
 // ==========================================
 // GET /api/sms/logs?notification_type=&status=&search=
 // ==========================================
@@ -214,13 +252,14 @@ router.post('/announcements', async (req, res, next) => {
     const aud = ['parents', 'staff', 'everyone'].includes(audience) ? audience : 'everyone';
     const shouldDispatch = dispatch_sms !== false;
 
-    const inserted = await pool.query(
-      `INSERT INTO announcements (title, message_body, audience, dispatch_sms, sent_by, created_by_name)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING *;`,
-      [title.trim(), message_body.trim(), aud, shouldDispatch, req.user?.id || null, actorName(req)]
-    );
-    const announcement = inserted.rows[0];
+    const announcement = await insertAnnouncement({
+      title: title.trim(),
+      messageBody: message_body.trim(),
+      audience: aud,
+      dispatchSms: shouldDispatch,
+      sentBy: req.user?.id || null,
+      createdByName: actorName(req),
+    });
     const fullMessage = `MIPC EDU: ${title.trim()} — ${message_body.trim()}`;
 
     let recipients = [];
@@ -277,12 +316,14 @@ router.post('/broadcast', async (req, res, next) => {
     if (!roles.length) {
       return res.status(400).json({ success: false, error: 'No valid staff roles targeted.' });
     }
-    const inserted = await pool.query(
-      `INSERT INTO announcements (title, message_body, audience, dispatch_sms, sent_by, created_by_name)
-       VALUES ($1, $2, 'staff', FALSE, $3, $4)
-       RETURNING *;`,
-      [title.trim(), message_body.trim(), req.user?.id || null, actorName(req)]
-    );
+    const announcement = await insertAnnouncement({
+      title: title.trim(),
+      messageBody: message_body.trim(),
+      audience: 'staff',
+      dispatchSms: false,
+      sentBy: req.user?.id || null,
+      createdByName: actorName(req),
+    });
     const message = `MIPC EDU [STAFF BROADCAST from ${req.user?.role}]: ${title.trim()} — ${message_body.trim()}`;
     let count = 0;
     for (const role of roles) {
@@ -296,7 +337,7 @@ router.post('/broadcast', async (req, res, next) => {
       });
       count += 1;
     }
-    res.status(201).json({ success: true, announcement: inserted.rows[0], delivered_to: count });
+    res.status(201).json({ success: true, announcement, delivered_to: count });
   } catch (err) {
     console.error('STAFF_BROADCAST_ERROR:', err);
     next(err);

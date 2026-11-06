@@ -96,7 +96,11 @@ router.get('/', async (req, res) => {
     return res.json({ success: true, settings: mergeSettings(result.rows) });
   } catch (err) {
     console.error('[SETTINGS_FETCH_ERROR]', err);
-    return res.status(500).json({ success: false, error: 'Unable to load system settings.' });
+    const status = err && err.code === '42P01' ? 503 : 500;
+    const message = err && err.code === '42P01'
+      ? 'System settings table is not initialized yet. Restart the API server to run database bootstrap.'
+      : 'Unable to load system settings.';
+    return res.status(status).json({ success: false, error: message });
   }
 });
 
@@ -129,26 +133,47 @@ router.put('/', async (req, res) => {
 
   const client = await pool.connect();
   try {
+    // Probe for the optional audit columns first: pre-existing installs may lack
+    // updated_by / updated_at, and once a statement fails inside a transaction the
+    // whole transaction is aborted, so this must happen before BEGIN.
+    const columnCheck = await client.query(
+      `SELECT COUNT(*)::int AS n FROM information_schema.columns
+       WHERE table_schema = 'public' AND table_name = 'system_settings'
+         AND column_name IN ('updated_by', 'updated_at')`
+    );
+    const hasAuditColumns = columnCheck.rows[0].n === 2;
+
     await client.query('BEGIN');
     for (const [key, value] of entries) {
       let serialized;
       if (BOOLEAN_KEYS.has(key)) serialized = String(Boolean(value));
       else if (NUMBER_KEYS.has(key)) serialized = String(Number(value) || 0);
       else serialized = String(value ?? '');
-      await client.query(
-        `INSERT INTO system_settings (setting_key, setting_value, updated_by, updated_at)
-         VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
-         ON CONFLICT (setting_key)
-         DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP`,
-        [key, serialized, req.user.id]
-      );
+      if (hasAuditColumns) {
+        await client.query(
+          `INSERT INTO system_settings (setting_key, setting_value, updated_by, updated_at)
+           VALUES ($1, $2, $3, CURRENT_TIMESTAMP)
+           ON CONFLICT (setting_key)
+           DO UPDATE SET setting_value = EXCLUDED.setting_value, updated_by = EXCLUDED.updated_by, updated_at = CURRENT_TIMESTAMP`,
+          [key, serialized, req.user.id]
+        );
+      } else {
+        // Fall back to the minimal column set so the save still persists.
+        await client.query(
+          `INSERT INTO system_settings (setting_key, setting_value)
+           VALUES ($1, $2)
+           ON CONFLICT (setting_key)
+           DO UPDATE SET setting_value = EXCLUDED.setting_value`,
+          [key, serialized]
+        );
+      }
     }
     await client.query('COMMIT');
 
     const result = await client.query('SELECT setting_key, setting_value FROM system_settings');
     return res.json({ success: true, settings: mergeSettings(result.rows) });
   } catch (err) {
-    await client.query('ROLLBACK');
+    try { await client.query('ROLLBACK'); } catch (rollbackErr) { /* connection already aborted */ }
     console.error('[SETTINGS_UPDATE_ERROR]', err);
     return res.status(500).json({ success: false, error: 'Unable to save system settings.' });
   } finally {

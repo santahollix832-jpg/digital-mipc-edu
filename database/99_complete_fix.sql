@@ -171,6 +171,9 @@ BEGIN
     IF EXISTS (SELECT 1 FROM information_schema.columns
                WHERE table_schema = 'public' AND table_name = 'announcements' AND column_name = 'body') THEN
         UPDATE announcements SET message_body = body WHERE message_body IS NULL AND body IS NOT NULL;
+        UPDATE announcements SET body = message_body WHERE body IS DISTINCT FROM message_body;
+        ALTER TABLE announcements ALTER COLUMN body DROP NOT NULL;
+        ALTER TABLE announcements ALTER COLUMN body SET DEFAULT '';
     END IF;
 END $$;
 ALTER TABLE announcements DROP CONSTRAINT IF EXISTS announcements_audience_check;
@@ -365,6 +368,9 @@ CREATE TABLE IF NOT EXISTS system_settings (
     updated_by INTEGER,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+-- Legacy-shape healing for pre-existing system_settings tables.
+ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS updated_by INTEGER;
+ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
 CREATE TABLE IF NOT EXISTS system_logs (
     id SERIAL PRIMARY KEY,
     action VARCHAR(100) NOT NULL,

@@ -222,6 +222,9 @@ async function ensureDatabaseSchema() {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
   `);
+  // Legacy-shape healing for pre-existing system_settings tables.
+  await pool.query('ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS updated_by INTEGER;');
+  await pool.query('ALTER TABLE system_settings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;');
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS system_logs (
@@ -409,6 +412,19 @@ async function ensureDatabaseSchema() {
   await pool.query('ALTER TABLE announcements ADD COLUMN IF NOT EXISTS dispatch_sms BOOLEAN DEFAULT TRUE;');
   await pool.query('ALTER TABLE announcements ADD COLUMN IF NOT EXISTS sent_by INT REFERENCES users(id) ON DELETE SET NULL;');
   await pool.query('ALTER TABLE announcements ADD COLUMN IF NOT EXISTS created_by_name VARCHAR(255) NOT NULL DEFAULT \'system\';');
+  // Heal the legacy `body` column: keep it in sync with message_body and relax
+  // its NOT NULL constraint so inserts can never violate it.
+  await pool.query(`
+    DO $$ BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.columns
+                 WHERE table_schema = 'public' AND table_name = 'announcements' AND column_name = 'body') THEN
+        UPDATE announcements SET message_body = COALESCE(message_body, '') WHERE message_body IS NULL AND body IS NOT NULL;
+        UPDATE announcements SET body = message_body WHERE body IS DISTINCT FROM message_body;
+        ALTER TABLE announcements ALTER COLUMN body DROP NOT NULL;
+        ALTER TABLE announcements ALTER COLUMN body SET DEFAULT '';
+      END IF;
+    END $$;
+  `);
   // Legacy backfill: only touch 'body' when that legacy column actually exists.
   await pool.query(`
     DO $$ BEGIN
