@@ -23,6 +23,67 @@ function calcStatus(totalPaid, totalRequired) {
   return 'UNPAID';
 }
 
+// Column-name adapter for the two payments-table shapes (legacy vs current).
+function paymentsAdapter(table) {
+  const legacy = table === 'fees_payments';
+  return {
+    table,
+    legacy,
+    amountCol: legacy ? 'amount' : 'amount_paid',
+    refCol: legacy ? 'receipt_no' : 'reference_no',
+    dateCol: legacy ? 'created_at::date' : 'payment_date',
+  };
+}
+
+// Recompute a student's fee totals and refresh the legacy ledger when present.
+// Runs inside an open transaction on `client`.
+async function recomputeStudentTotals(client, studentId, studentClass) {
+  const paymentsTable = await resolvePaymentsTable();
+  const { amountCol } = paymentsAdapter(paymentsTable);
+
+  const paidRes = await client.query(
+    `SELECT COALESCE(SUM(${amountCol}), 0)::NUMERIC AS total_paid FROM ${paymentsTable} WHERE student_id = $1`,
+    [studentId]
+  );
+  const totalPaid = money(paidRes.rows[0].total_paid);
+
+  const requiredRes = await client.query(
+    `SELECT COALESCE(
+       (SELECT sa.agreed_amount - sa.discount_amount
+        FROM student_fee_accounts sa
+        JOIN fee_structures f ON f.id = sa.fee_structure_id
+        WHERE sa.student_id = $1
+        ORDER BY f.created_at DESC LIMIT 1),
+       (SELECT f.total_amount FROM fee_structures f WHERE f.class_name = $2 ORDER BY f.created_at DESC LIMIT 1),
+       0
+     )::NUMERIC AS total_required`,
+    [studentId, studentClass]
+  );
+  const totalRequired = money(requiredRes.rows[0].total_required);
+  const balance = money(Math.max(totalRequired - totalPaid, 0));
+  const status = calcStatus(totalPaid, totalRequired);
+
+  // Keep the legacy ledger in sync when that table exists (best-effort).
+  try {
+    await client.query(
+      `INSERT INTO fees_ledger (student_id, total_required, total_paid, balance, status, last_payment_date, updated_at)
+       VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+       ON CONFLICT (student_id) DO UPDATE
+         SET total_required = EXCLUDED.total_required,
+             total_paid = EXCLUDED.total_paid,
+             balance = EXCLUDED.balance,
+             status = EXCLUDED.status,
+             last_payment_date = NOW(),
+             updated_at = NOW()`,
+      [studentId, totalRequired, totalPaid, balance, status]
+    );
+  } catch (ledgerErr) {
+    console.warn('[FEES_LEDGER_SYNC_WARN]', ledgerErr.message);
+  }
+
+  return { totalRequired, totalPaid, balance, status };
+}
+
 // Ensure the new fees tables exist even if the standalone SQL setup was not run.
 async function ensureFeesTables() {
   await pool.query(`
@@ -371,47 +432,10 @@ router.post('/payments', async (req, res) => {
     const paymentRow = insertResult.rows[0];
 
     // Recompute true totals from the payments table — single source of truth.
-    const paidRes = await client.query(
-      `SELECT COALESCE(SUM(${amountCol}), 0)::NUMERIC AS total_paid FROM ${paymentsTable} WHERE student_id = $1`,
-      [student_id]
-    );
-    const totalPaid = money(paidRes.rows[0].total_paid);
-
-    // Required amount: student account (agreed − discount), else class structure.
-    const requiredRes = await client.query(
-      `SELECT COALESCE(
-         (SELECT sa.agreed_amount - sa.discount_amount
-          FROM student_fee_accounts sa
-          JOIN fee_structures f ON f.id = sa.fee_structure_id
-          WHERE sa.student_id = $1
-          ORDER BY f.created_at DESC LIMIT 1),
-         (SELECT f.total_amount FROM fee_structures f WHERE f.class_name = $2 ORDER BY f.created_at DESC LIMIT 1),
-         0
-       )::NUMERIC AS total_required`,
-      [student_id, student.class]
-    );
-    const totalRequired = money(requiredRes.rows[0].total_required);
-    const balance = money(Math.max(totalRequired - totalPaid, 0));
-    const status = calcStatus(totalPaid, totalRequired);
+    const { totalRequired, totalPaid, balance, status } = await recomputeStudentTotals(client, student_id, student.class);
 
     // Keep the legacy ledger in sync when that table exists (backward compatibility).
-    try {
-      await client.query(
-        `INSERT INTO fees_ledger (student_id, total_required, total_paid, balance, status, last_payment_date, updated_at)
-         VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
-         ON CONFLICT (student_id) DO UPDATE
-           SET total_required = EXCLUDED.total_required,
-               total_paid = EXCLUDED.total_paid,
-               balance = EXCLUDED.balance,
-               status = EXCLUDED.status,
-               last_payment_date = NOW(),
-               updated_at = NOW()`,
-        [student_id, totalRequired, totalPaid, balance, status]
-      );
-    } catch (ledgerErr) {
-      // Ledger table may not exist on fresh installs — non-fatal.
-      await client.query('SAVEPOINT ledger_skip').catch(() => { });
-    }
+    // Handled inside recomputeStudentTotals().
 
     await client.query('COMMIT');
 
@@ -469,6 +493,194 @@ router.get('/payments/:studentId', async (req, res) => {
   } catch (err) {
     console.error('[FEES_PAYMENTS_LIST_ERROR]', err.message);
     return res.status(500).json({ success: false, error: 'Unable to load payment history.' });
+  }
+});
+
+// ── PUT /api/fees/payments/:id — edit an existing payment ─────────────────────
+// Body (all optional): { amount_paid, payment_method, reference_no, payment_date }
+// Recomputes the student's balance/status after the update.
+router.put('/payments/:id', async (req, res) => {
+  const paymentId = Number(req.params.id);
+  if (!Number.isInteger(paymentId) || paymentId <= 0) {
+    return res.status(400).json({ success: false, error: 'A valid payment id is required.' });
+  }
+
+  const amount_paid = req.body?.amount_paid !== undefined ? num(req.body.amount_paid, -1) : undefined;
+  const payment_method = req.body?.payment_method !== undefined ? req.body.payment_method : undefined;
+  const reference_no = req.body?.reference_no !== undefined ? (req.body.reference_no ? String(req.body.reference_no).trim() : null) : undefined;
+  const payment_date = req.body?.payment_date !== undefined && req.body.payment_date ? String(req.body.payment_date) : undefined;
+  const edited_by = req.user?.full_name || req.user?.username || 'Bursar';
+
+  if (amount_paid !== undefined && amount_paid <= 0) {
+    return res.status(400).json({ success: false, error: 'Amount must be greater than zero.' });
+  }
+  if (payment_method !== undefined && !PAYMENT_METHODS.includes(payment_method)) {
+    return res.status(400).json({ success: false, error: `payment_method must be one of: ${PAYMENT_METHODS.join(', ')}.` });
+  }
+
+  const client = await pool.connect();
+  try {
+    await ensureFeesTables();
+    const paymentsTable = await resolvePaymentsTable();
+    const { legacy, amountCol, refCol } = paymentsAdapter(paymentsTable);
+
+    await client.query('BEGIN');
+
+    const existing = await client.query(`SELECT * FROM ${paymentsTable} WHERE id = $1 FOR UPDATE`, [paymentId]);
+    if (!existing.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ success: false, error: 'Payment not found.' });
+    }
+    const current = existing.rows[0];
+    const studentId = current.student_id;
+
+    // Probe whether the edit-audit columns exist (older installs may lack them).
+    let hasEditAudit = false;
+    if (!legacy) {
+      try {
+        const colRes = await pool.query(
+          `SELECT 1 FROM information_schema.columns
+           WHERE table_schema = 'public' AND table_name = 'fee_payments' AND column_name = 'edited_by'`
+        );
+        hasEditAudit = colRes.rowCount > 0;
+      } catch { hasEditAudit = false; }
+    }
+
+    const newAmount = amount_paid !== undefined ? money(amount_paid) : money(current[amountCol]);
+    const newMethod = payment_method !== undefined ? payment_method : current.payment_method;
+    const newRef = reference_no !== undefined ? reference_no : current[refCol];
+
+    if (legacy) {
+      // Legacy table has no payment_date column — skip it there.
+      await client.query(
+        `UPDATE fees_payments SET ${amountCol} = $1, payment_method = $2, ${refCol} = $3 WHERE id = $4`,
+        [newAmount, newMethod, newRef, paymentId]
+      );
+    } else {
+      const newDate = payment_date !== undefined ? payment_date : current.payment_date;
+      if (hasEditAudit) {
+        await client.query(
+          `UPDATE fee_payments SET amount_paid = $1, payment_method = $2, reference_no = $3, payment_date = $4, edited_by = $5, edited_at = NOW() WHERE id = $6`,
+          [newAmount, newMethod, newRef, newDate, edited_by, paymentId]
+        );
+      } else {
+        await client.query(
+          `UPDATE fee_payments SET amount_paid = $1, payment_method = $2, reference_no = $3, payment_date = $4 WHERE id = $5`,
+          [newAmount, newMethod, newRef, newDate, paymentId]
+        );
+      }
+    }
+
+    const studentRes = await client.query('SELECT id, name, class, reg_number FROM students WHERE id = $1', [studentId]);
+    const student = studentRes.rows[0] || { name: 'Unknown', class: null, reg_number: null };
+
+    const { totalRequired, totalPaid, balance, status } = await recomputeStudentTotals(client, studentId, student.class);
+    await client.query('COMMIT');
+
+    const paidRes = await pool.query(
+      `SELECT ${refCol} AS reference_no, ${legacy ? 'created_at::date' : 'payment_date'} AS payment_date FROM ${paymentsTable} WHERE id = $1`,
+      [paymentId]
+    );
+    const updated = paidRes.rows[0] || {};
+
+    return res.json({
+      success: true,
+      payment: {
+        payment_id: paymentId,
+        receipt_no: `RCP-${String(paymentId).padStart(6, '0')}`,
+        student_id: studentId,
+        student_name: student.name,
+        class: student.class,
+        reg_number: student.reg_number,
+        amount_paid: newAmount,
+        payment_method: newMethod,
+        reference_no: newRef,
+        payment_date: updated.payment_date || current.payment_date || new Date().toISOString().slice(0, 10),
+        edited_by,
+      },
+      ledger: { total_required: totalRequired, total_paid: totalPaid, balance, status },
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => { });
+    console.error('[FEES_PAYMENT_UPDATE_ERROR]', err.message);
+    return res.status(500).json({ success: false, error: 'Unable to update the payment.' });
+  } finally {
+    client.release();
+  }
+});
+
+// ── GET /api/students/:id/fee-summary — profile financial card data ───────────
+// NOTE: mounted at /api/fees in server.js, so the effective URL is
+// /api/fees/students/:id/fee-summary. Server-side alias below covers the
+// /api/students path via the shared router registration.
+router.get('/students/:id/fee-summary', async (req, res) => {
+  const studentId = Number(req.params.id);
+  if (!Number.isInteger(studentId) || studentId <= 0) {
+    return res.status(400).json({ success: false, error: 'A valid student id is required.' });
+  }
+  try {
+    await ensureFeesTables();
+    const paymentsTable = await resolvePaymentsTable();
+    const { amountCol, refCol, dateCol } = paymentsAdapter(paymentsTable);
+
+    const studentRes = await pool.query('SELECT id, name, class, reg_number FROM students WHERE id = $1', [studentId]);
+    if (!studentRes.rows.length) {
+      return res.status(404).json({ success: false, error: 'Student not found.' });
+    }
+    const student = studentRes.rows[0];
+
+    const totalsRes = await pool.query(
+      `SELECT
+         COALESCE(
+           (SELECT sa.agreed_amount - sa.discount_amount
+            FROM student_fee_accounts sa
+            JOIN fee_structures f ON f.id = sa.fee_structure_id
+            WHERE sa.student_id = $1 ORDER BY f.created_at DESC LIMIT 1),
+           (SELECT f.total_amount FROM fee_structures f WHERE f.class_name = $2 ORDER BY f.created_at DESC LIMIT 1),
+           0
+         )::NUMERIC AS total_required,
+         COALESCE((SELECT SUM(${amountCol}) FROM ${paymentsTable} WHERE student_id = $1), 0)::NUMERIC AS total_paid`,
+      [studentId, student.class]
+    );
+    const totalRequired = money(totalsRes.rows[0].total_required);
+    const totalPaid = money(totalsRes.rows[0].total_paid);
+    const balance = money(Math.max(totalRequired - totalPaid, 0));
+    const status = calcStatus(totalPaid, totalRequired);
+
+    const historyRes = await pool.query(
+      `SELECT id, ${amountCol} AS amount_paid, payment_method, ${refCol} AS reference_no,
+              ${dateCol} AS payment_date, recorded_by, created_at
+       FROM ${paymentsTable} WHERE student_id = $1
+       ORDER BY ${dateCol} DESC, id DESC LIMIT 100`,
+      [studentId]
+    );
+    const payments = historyRes.rows.map((r) => ({
+      payment_id: r.id,
+      receipt_no: `RCP-${String(r.id).padStart(6, '0')}`,
+      amount_paid: money(r.amount_paid),
+      payment_method: r.payment_method,
+      reference_no: r.reference_no || null,
+      payment_date: r.payment_date,
+      recorded_by: r.recorded_by,
+      recorded_at: r.created_at,
+    }));
+
+    return res.json({
+      success: true,
+      student: { id: student.id, name: student.name, class: student.class, reg_number: student.reg_number },
+      summary: {
+        total_required: totalRequired,
+        total_paid: totalPaid,
+        balance,
+        status,
+        payment_count: payments.length,
+        last_payment_date: payments[0]?.payment_date || null,
+      },
+      payments,
+    });
+  } catch (err) {
+    console.error('[FEES_SUMMARY_ERROR]', err.message);
+    return res.status(500).json({ success: false, error: 'Unable to load the fee summary.' });
   }
 });
 

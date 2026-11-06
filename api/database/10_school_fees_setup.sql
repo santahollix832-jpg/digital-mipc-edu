@@ -53,3 +53,9 @@ CREATE TABLE IF NOT EXISTS fee_payments (
 );
 CREATE INDEX IF NOT EXISTS idx_fee_payments_student ON fee_payments (student_id);
 CREATE INDEX IF NOT EXISTS idx_fee_payments_date ON fee_payments (payment_date DESC);
+
+-- ------------------------------------------------------------
+-- 4. Payment edit audit columns (added for the Edit Payment feature)
+-- ------------------------------------------------------------
+ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS edited_by VARCHAR(255);
+ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;

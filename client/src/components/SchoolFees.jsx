@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  BadgeCheck, Banknote, Building2, CalendarDays, CircleDollarSign, Download, Loader2,
-  Percent, Plus, Printer, Receipt, RefreshCw, Search, Users, Wallet, X,
+  BadgeCheck, Banknote, Building2, CalendarDays, CircleDollarSign, Download, History, Loader2,
+  PencilLine, Percent, Plus, Printer, Receipt, RefreshCw, Search, Users, Wallet, X,
 } from 'lucide-react';
 import { apiFetch, safeJsonResponse } from '../api/config';
 import { useToast } from './ToastProvider';
@@ -214,6 +214,164 @@ function PaymentModal({ student, onClose, onRecorded }) {
   );
 }
 
+/* ──────────────────── Edit payment modal ─────────────────────────── */
+
+function EditPaymentModal({ payment, onClose, onSaved }) {
+  const { notify } = useToast();
+  const [form, setForm] = useState({
+    amount_paid: String(payment.amount_paid ?? ''),
+    payment_method: payment.payment_method || 'Cash',
+    reference_no: payment.reference_no || '',
+    payment_date: (payment.payment_date || new Date().toISOString().slice(0, 10)).slice(0, 10),
+  });
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState('');
+
+  async function submit(e) {
+    e.preventDefault();
+    setError('');
+    const amount = Number(form.amount_paid);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      setError('Enter a payment amount greater than zero.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const response = await apiFetch(`/fees/payments/${payment.payment_id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount_paid: amount,
+          payment_method: form.payment_method,
+          reference_no: form.reference_no || null,
+          payment_date: form.payment_date,
+        }),
+      });
+      const payload = await safeJsonResponse(response) || {};
+      if (!response.ok || payload.success === false) throw new Error(payload.error || 'Failed to update the payment.');
+      notify(`Payment ${payload.payment?.receipt_no || ''} updated — balance recalculated.`, 'success');
+      onSaved(payload.ledger);
+      onClose();
+    } catch (err) {
+      setError(err.message || 'Failed to update the payment.');
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Modal title={`Edit Payment — ${payment.receipt_no}`} icon={PencilLine} onClose={onClose}>
+      <form onSubmit={submit} className="space-y-4">
+        <div>
+          <label className={labelClass} htmlFor="edit-amount">Amount Paid (RWF)</label>
+          <input id="edit-amount" type="number" min="1" step="1" required value={form.amount_paid}
+            onChange={(e) => setForm((f) => ({ ...f, amount_paid: e.target.value }))} className={inputClass} />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelClass} htmlFor="edit-method">Payment Method</label>
+            <select id="edit-method" value={form.payment_method}
+              onChange={(e) => setForm((f) => ({ ...f, payment_method: e.target.value }))} className={inputClass}>
+              {PAYMENT_METHODS.map((m) => <option key={m} value={m} className="bg-slate-900">{m}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className={labelClass} htmlFor="edit-date">Payment Date</label>
+            <input id="edit-date" type="date" required value={form.payment_date}
+              onChange={(e) => setForm((f) => ({ ...f, payment_date: e.target.value }))} className={inputClass} />
+          </div>
+        </div>
+        <div>
+          <label className={labelClass} htmlFor="edit-ref">Reference No.</label>
+          <input id="edit-ref" type="text" value={form.reference_no}
+            onChange={(e) => setForm((f) => ({ ...f, reference_no: e.target.value }))}
+            placeholder="Bank slip / MoMo txn id" className={inputClass} />
+        </div>
+        {error && <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200" role="alert">{error}</p>}
+        <button type="submit" disabled={submitting} className={`${primaryButtonClass} w-full`}>
+          {submitting ? <Loader2 size={16} className="animate-spin" /> : <BadgeCheck size={16} />}
+          {submitting ? 'Saving…' : 'Save Changes & Recalculate'}
+        </button>
+      </form>
+    </Modal>
+  );
+}
+
+/* ──────────────────── Payment history modal ─────────────────────── */
+
+function PaymentHistoryModal({ student, onEdit, onClose }) {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [payments, setPayments] = useState([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await apiFetch(`/fees/payments/${student.student_id}`);
+        const payload = await safeJsonResponse(response) || {};
+        if (!response.ok || payload.success === false) throw new Error(payload.error || 'Failed to load payment history.');
+        if (!cancelled) setPayments(payload.payments || []);
+      } catch (err) {
+        if (!cancelled) setError(err.message || 'Failed to load payment history.');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [student.student_id]);
+
+  return (
+    <Modal title={`Payment History — ${student.student_name}`} icon={History} onClose={onClose} wide>
+      {loading ? (
+        <div className="flex items-center justify-center gap-3 py-12 text-slate-400">
+          <Loader2 size={18} className="animate-spin" /> Loading history…
+        </div>
+      ) : error ? (
+        <p className="rounded-xl border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-200" role="alert">{error}</p>
+      ) : !payments.length ? (
+        <div className="py-10 text-center text-slate-400">
+          <Receipt size={28} className="mx-auto mb-2 opacity-40" />
+          <p className="text-sm font-semibold text-slate-300">No payments recorded yet.</p>
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-[11px] uppercase tracking-wider text-slate-400">
+                <th className="px-3 py-2 font-semibold">Receipt</th>
+                <th className="px-3 py-2 font-semibold">Date</th>
+                <th className="px-3 py-2 text-right font-semibold">Amount</th>
+                <th className="px-3 py-2 font-semibold">Method</th>
+                <th className="px-3 py-2 font-semibold">Reference</th>
+                <th className="px-3 py-2 font-semibold">Recorded By</th>
+                <th className="px-3 py-2 text-right font-semibold">Action</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-white/5">
+              {payments.map((p) => (
+                <tr key={p.payment_id ?? p.id} className="transition hover:bg-white/[0.04]">
+                  <td className="px-3 py-2.5 font-mono text-xs font-semibold text-emerald-300">{p.receipt_no}</td>
+                  <td className="px-3 py-2.5 text-slate-300">{p.payment_date ? String(p.payment_date).slice(0, 10) : '—'}</td>
+                  <td className="px-3 py-2.5 text-right font-bold text-white">{fmtRWF(p.amount_paid)}</td>
+                  <td className="px-3 py-2.5 text-slate-300">{p.payment_method}</td>
+                  <td className="px-3 py-2.5 font-mono text-xs text-slate-400">{p.reference_no || '—'}</td>
+                  <td className="px-3 py-2.5 text-slate-400">{p.recorded_by || '—'}</td>
+                  <td className="px-3 py-2.5 text-right">
+                    <button type="button" onClick={() => onEdit(p)}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs font-semibold text-slate-200 transition hover:bg-white/10">
+                      <PencilLine size={13} /> Edit
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Modal>
+  );
+}
+
 /* ────────────────────────── Bulk assign modal ──────────────────────────────── */
 
 function BulkAssignModal({ classes, structures, onClose, onAssigned }) {
@@ -381,6 +539,8 @@ export default function SchoolFees() {
   const [statusFilter, setStatusFilter] = useState('All');
   const [expanded, setExpanded] = useState({});
   const [payFor, setPayFor] = useState(null);
+  const [historyFor, setHistoryFor] = useState(null);
+  const [editPayment, setEditPayment] = useState(null);
   const [assignOpen, setAssignOpen] = useState(false);
   const [structureOpen, setStructureOpen] = useState(false);
 
@@ -604,10 +764,17 @@ export default function SchoolFees() {
                         <td className="px-5 py-3 text-right font-semibold text-amber-300">{fmtRWF(s.balance)}</td>
                         <td className="px-5 py-3"><StatusBadge status={s.status} /></td>
                         <td className="px-5 py-3 text-right">
-                          <button type="button" onClick={() => setPayFor(s)}
-                            className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-md shadow-indigo-600/30 transition hover:bg-indigo-500">
-                            Record Payment
-                          </button>
+                          <div className="flex items-center justify-end gap-2">
+                            <button type="button" onClick={() => setHistoryFor(s)}
+                              className="rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs font-semibold text-slate-200 transition hover:bg-white/10"
+                              title="View & edit payment history">
+                              <History size={13} />
+                            </button>
+                            <button type="button" onClick={() => setPayFor(s)}
+                              className="rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-semibold text-white shadow-md shadow-indigo-600/30 transition hover:bg-indigo-500">
+                              Record Payment
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -631,6 +798,20 @@ export default function SchoolFees() {
           student={payFor}
           onClose={() => setPayFor(null)}
           onRecorded={() => { load(true); }}
+        />
+      )}
+      {historyFor && !editPayment && (
+        <PaymentHistoryModal
+          student={historyFor}
+          onEdit={(p) => setEditPayment(p)}
+          onClose={() => setHistoryFor(null)}
+        />
+      )}
+      {editPayment && (
+        <EditPaymentModal
+          payment={editPayment}
+          onClose={() => setEditPayment(null)}
+          onSaved={() => { load(true); }}
         />
       )}
       {assignOpen && (

@@ -482,6 +482,9 @@ async function ensureDatabaseSchema() {
   `);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_fee_payments_student ON fee_payments (student_id);');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_fee_payments_date ON fee_payments (payment_date DESC);');
+  // Payment edit audit columns (legacy installs may not have them).
+  await pool.query('ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS edited_by VARCHAR(255);');
+  await pool.query('ALTER TABLE fee_payments ADD COLUMN IF NOT EXISTS edited_at TIMESTAMPTZ;');
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS bell_device (
@@ -527,6 +530,19 @@ app.use('/api/permissions', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD', 'SE
 
 // Connect school fees module route
 app.use('/api/fees', requireRoles('ADMIN', 'BURSAR'), feesRouter);
+
+// Alias: /api/students/:id/fee-summary → same handler, so the student-profile
+// card and any external consumers can use the natural REST path. Access rules
+// are enforced inside feesRouter mounts; for the alias we gate explicitly to
+// ADMIN/BURSAR plus the staff roles that may VIEW (read-only) a profile.
+const feesSummaryHandler = feesRouter.stack
+  .find((layer) => layer.route?.path === '/students/:id/fee-summary' && layer.route?.methods?.get)
+  ?.route?.stack[0]?.handle;
+if (feesSummaryHandler) {
+  app.get('/api/students/:id/fee-summary',
+    requireRoles('ADMIN', 'BURSAR', 'PATRON', 'MATRON', 'DOD'),
+    feesSummaryHandler);
+}
 
 // Connect staff management module route
 app.use('/api/staff', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD'), staffRouter);

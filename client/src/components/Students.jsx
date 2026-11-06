@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
-import { BadgeCheck, BedDouble, ChevronLeft, ChevronRight, PencilLine, Plus, Printer, QrCode, Download, Search, Sparkles, Sun, Trash2, UserRound, UsersRound, X } from 'lucide-react';
-import { apiFetch, assetUrl } from '../api/config';
+import { BadgeCheck, BedDouble, ChevronLeft, ChevronRight, Loader2, PencilLine, Plus, Printer, QrCode, Download, Search, Sparkles, Sun, Trash2, UserRound, UsersRound, X } from 'lucide-react';
+import { apiFetch, assetUrl, safeJsonResponse } from '../api/config';
 import { useToast } from './ToastProvider';
 import './Students.css';
 
@@ -885,6 +885,8 @@ function Students() {
                   );
                 })()}
 
+                <FeeSummaryCard studentId={selectedStudent.id} />
+
                 <div className="rounded-2xl border border-indigo-200 bg-indigo-50 p-4">
                   <div className="mb-3 flex items-center justify-between">
                     <p className="text-sm font-semibold uppercase tracking-[0.18em] text-indigo-600">Discipline summary</p>
@@ -969,6 +971,101 @@ function Students() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/* ────────────────── Financial / School Fees summary card ────────────────── */
+
+const FEES_FMT = (v) => `RWF ${Number(v || 0).toLocaleString('en-RW', { maximumFractionDigits: 0 })}`;
+const FEES_STATUS = {
+  COMPLETED: { label: 'Fully Paid', chip: 'bg-emerald-100 text-emerald-700' },
+  PARTIALLY_PAID: { label: 'Partial Payment', chip: 'bg-amber-100 text-amber-700' },
+  UNPAID: { label: 'Unpaid', chip: 'bg-rose-100 text-rose-700' },
+};
+
+function FeeSummaryCard({ studentId }) {
+  const [state, setState] = useState({ loading: true, error: '', data: null });
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ loading: true, error: '', data: null });
+    (async () => {
+      try {
+        const response = await apiFetch(`/students/${studentId}/fee-summary`);
+        const payload = await safeJsonResponse(response) || {};
+        if (!response.ok || payload.success === false) throw new Error(payload.error || 'Failed to load fee summary.');
+        if (!cancelled) setState({ loading: false, error: '', data: payload });
+      } catch (err) {
+        if (!cancelled) setState({ loading: false, error: err.message || 'Failed to load fee summary.', data: null });
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [studentId]);
+
+  if (state.loading) {
+    return (
+      <div className="flex items-center gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-500">
+        <Loader2 size={16} className="animate-spin" /> Loading fees summary…
+      </div>
+    );
+  }
+  if (state.error) {
+    return (
+      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-700">
+        {state.error}
+      </div>
+    );
+  }
+
+  const { summary, payments } = state.data;
+  const badge = FEES_STATUS[summary.status] || FEES_STATUS.UNPAID;
+
+  return (
+    <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4">
+      <div className="mb-3 flex items-center justify-between">
+        <p className="text-sm font-semibold uppercase tracking-[0.18em] text-emerald-700">School Fees Summary</p>
+        <span className={`rounded-full px-2.5 py-1 text-xs font-semibold ${badge.chip}`}>{badge.label}</span>
+      </div>
+      <div className="grid gap-3 md:grid-cols-3">
+        <div className="rounded-xl bg-white p-3">
+          <p className="text-xs text-slate-500">Total Fee Required</p>
+          <p className="mt-1 text-xl font-bold text-slate-900">{FEES_FMT(summary.total_required)}</p>
+        </div>
+        <div className="rounded-xl bg-white p-3">
+          <p className="text-xs text-slate-500">Total Paid</p>
+          <p className="mt-1 text-xl font-bold text-emerald-600">{FEES_FMT(summary.total_paid)}</p>
+        </div>
+        <div className="rounded-xl bg-white p-3">
+          <p className="text-xs text-slate-500">Balance Outstanding</p>
+          <p className="mt-1 text-xl font-bold text-amber-600">{FEES_FMT(summary.balance)}</p>
+        </div>
+      </div>
+
+      <div className="mt-3 rounded-xl bg-white">
+        <div className="flex items-center justify-between border-b border-slate-100 px-3 py-2">
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">Payment History</p>
+          <span className="text-xs text-slate-400">{summary.payment_count} transaction{summary.payment_count === 1 ? '' : 's'}</span>
+        </div>
+        {payments.length ? (
+          <div className="max-h-52 overflow-y-auto">
+            <table className="w-full text-sm">
+              <tbody className="divide-y divide-slate-100">
+                {payments.map((p) => (
+                  <tr key={p.payment_id}>
+                    <td className="px-3 py-2 font-mono text-xs font-semibold text-emerald-700">{p.receipt_no}</td>
+                    <td className="px-3 py-2 text-xs text-slate-500">{p.payment_date ? String(p.payment_date).slice(0, 10) : '—'}</td>
+                    <td className="px-3 py-2 text-xs text-slate-600">{p.payment_method}{p.reference_no ? ` · ${p.reference_no}` : ''}</td>
+                    <td className="px-3 py-2 text-right font-semibold text-slate-900">{FEES_FMT(p.amount_paid)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="px-3 py-4 text-center text-sm text-slate-400">No payments recorded yet.</p>
+        )}
+      </div>
     </div>
   );
 }
