@@ -376,17 +376,26 @@ function PaymentHistoryModal({ student, onEdit, onClose }) {
 
 function BulkAssignModal({ classes, structures, onClose, onAssigned }) {
   const { notify } = useToast();
-  const [form, setForm] = useState({ class_name: classes[0]?.class_name || '', fee_structure_id: '', discount_amount: '' });
+  const [form, setForm] = useState({ class_name: (classes.find((c) => (c.student_count || 0) > 0)?.class_name) || classes[0]?.class_name || '', fee_structure_id: '', discount_amount: '' });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
   const selectedStructure = structures.find((s) => String(s.id) === String(form.fee_structure_id));
+
+  // Live recount: the currently selected class's student count, re-derived from
+  // the classes list every time the class_name selection changes.
+  const selectedClass = classes.find((c) => String(c.class_name).trim().toLowerCase() === String(form.class_name).trim().toLowerCase());
+  const selectedClassCount = selectedClass?.student_count ?? 0;
 
   async function submit(e) {
     e.preventDefault();
     setError('');
     if (!form.class_name || !form.fee_structure_id) {
       setError('Select both a class and a fee structure.');
+      return;
+    }
+    if (!selectedClassCount) {
+      setError(`No students found in ${form.class_name}. Select a class with enrolled students.`);
       return;
     }
     setSubmitting(true);
@@ -422,8 +431,16 @@ function BulkAssignModal({ classes, structures, onClose, onAssigned }) {
           <label className={labelClass} htmlFor="assign-class">Class</label>
           <select id="assign-class" value={form.class_name}
             onChange={(e) => setForm((f) => ({ ...f, class_name: e.target.value }))} className={inputClass}>
+            <option value="" disabled className="bg-slate-900">Select a class…</option>
             {classes.map((c) => <option key={c.class_name} value={c.class_name} className="bg-slate-900">{c.class_name} ({c.student_count} students)</option>)}
           </select>
+          {form.class_name && (
+            <p className="mt-1.5 text-xs text-indigo-300">
+              {selectedClassCount > 0
+                ? `${selectedClassCount} student${selectedClassCount === 1 ? '' : 's'} will receive this fee in ${selectedClass?.class_name || form.class_name}.`
+                : `No students found in ${form.class_name} — pick another class or enrol students first.`}
+            </p>
+          )}
         </div>
         <div>
           <label className={labelClass} htmlFor="assign-structure">Fee Structure</label>

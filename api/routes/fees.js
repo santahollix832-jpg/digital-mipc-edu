@@ -161,7 +161,7 @@ router.get('/overview', async (req, res) => {
 
     if (classFilter && classFilter !== 'All') {
       values.push(String(classFilter).trim());
-      where.push(`s.class = $${values.length}`);
+      where.push(`LOWER(TRIM(s.class)) = LOWER(TRIM($${values.length}))`);
     }
     if (search && String(search).trim()) {
       values.push(`%${String(search).trim()}%`);
@@ -341,7 +341,13 @@ router.post('/assign', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Discount cannot exceed the structure total.' });
     }
 
-    const students = await client.query('SELECT id FROM students WHERE class = $1', [String(class_name).trim()]);
+    // Match students case-insensitively and ignoring surrounding whitespace so a
+    // structure saved as "L3 SOFTWARE DEVELOPMENT" still matches students.class
+    // stored as "l3 software development " etc.
+    const students = await client.query(
+      'SELECT id FROM students WHERE LOWER(TRIM(class)) = LOWER(TRIM($1))',
+      [String(class_name).trim()]
+    );
     if (!students.rows.length) {
       await client.query('ROLLBACK');
       return res.status(404).json({ success: false, error: `No students found in ${class_name}.` });
@@ -804,7 +810,7 @@ router.post('/set-target', async (req, res) => {
     if (student_id) {
       studentIds = [Number(student_id)];
     } else {
-      const r = await pool.query('SELECT id FROM students WHERE class = $1', [String(class_name).trim()]);
+      const r = await pool.query('SELECT id FROM students WHERE LOWER(TRIM(class)) = LOWER(TRIM($1))', [String(class_name).trim()]);
       studentIds = r.rows.map((row) => row.id);
       if (!studentIds.length) {
         return res.status(404).json({ success: false, error: 'No students found for that class.' });
