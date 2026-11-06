@@ -813,7 +813,7 @@ export default function SchoolFees() {
       {payFor && (
         <PaymentModal
           student={payFor}
-          onClose={() => setPayFor(null)}
+          onClose={() => { setPayFor(null); load(true); }}
           onRecorded={() => { load(true); }}
         />
       )}
@@ -827,7 +827,7 @@ export default function SchoolFees() {
       {editPayment && (
         <EditPaymentModal
           payment={editPayment}
-          onClose={() => setEditPayment(null)}
+          onClose={() => { setEditPayment(null); load(true); }}
           onSaved={() => { load(true); }}
         />
       )}

@@ -63,6 +63,28 @@ async function recomputeStudentTotals(client, studentId, studentClass) {
   const balance = money(Math.max(totalRequired - totalPaid, 0));
   const status = calcStatus(totalPaid, totalRequired);
 
+  // Persist the recalculated figures onto the student's latest fee account so
+  // the database itself reflects the current paid_amount / balance (best-effort
+  // — the live SUM from the payments table remains the source of truth).
+  try {
+    await client.query(
+      `UPDATE student_fee_accounts sa
+          SET paid_amount = $1,
+              balance = $2
+         WHERE sa.student_id = $3
+           AND sa.id = (
+             SELECT sa2.id FROM student_fee_accounts sa2
+             JOIN fee_structures f2 ON f2.id = sa2.fee_structure_id
+             WHERE sa2.student_id = $3
+             ORDER BY f2.created_at DESC
+             LIMIT 1
+           )`,
+      [totalPaid, balance, studentId]
+    );
+  } catch (persistErr) {
+    console.warn('[FEE_ACCOUNT_PERSIST_WARN]', persistErr.message);
+  }
+
   // Keep the legacy ledger in sync when that table exists (best-effort).
   try {
     await client.query(
@@ -104,6 +126,8 @@ async function ensureFeesTables() {
       fee_structure_id BIGINT NOT NULL REFERENCES fee_structures(id) ON DELETE CASCADE,
       agreed_amount NUMERIC(12, 2) NOT NULL CHECK (agreed_amount >= 0),
       discount_amount NUMERIC(12, 2) NOT NULL DEFAULT 0 CHECK (discount_amount >= 0),
+      paid_amount NUMERIC(12, 2) NOT NULL DEFAULT 0 CHECK (paid_amount >= 0),
+      balance NUMERIC(12, 2) NOT NULL DEFAULT 0 CHECK (balance >= 0),
       created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
       UNIQUE (student_id, fee_structure_id)
     );
@@ -121,6 +145,14 @@ async function ensureFeesTables() {
     );
   `);
   await pool.query('CREATE INDEX IF NOT EXISTS idx_fee_payments_student ON fee_payments (student_id);');
+
+  // Older installs may predate the paid_amount / balance columns.
+  try {
+    await pool.query('ALTER TABLE student_fee_accounts ADD COLUMN IF NOT EXISTS paid_amount NUMERIC(12, 2) NOT NULL DEFAULT 0;');
+    await pool.query('ALTER TABLE student_fee_accounts ADD COLUMN IF NOT EXISTS balance NUMERIC(12, 2) NOT NULL DEFAULT 0;');
+  } catch (colErr) {
+    console.warn('[FEE_ACCOUNT_COLS_WARN]', colErr.message);
+  }
 }
 
 // Resolve which fee_payments table shape this install uses.
