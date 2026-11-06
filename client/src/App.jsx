@@ -16,6 +16,7 @@ import TransportManagement from './components/transport/TransportManagement';
 import SMSNotificationsDashboard from './components/sms/SMSNotificationsDashboard';
 import SmartBell from './components/SmartBell';
 import Settings from './components/Settings';
+import SchoolFees from './components/SchoolFees';
 import RoleDashboard from './components/RoleDashboard';
 import { ThemeProvider } from './theme/ThemeContext';
 import { ToastProvider } from './components/ToastProvider';
@@ -248,6 +249,11 @@ function AuthenticatedApp() {
             <Route path="/sms/*" element={
               <ProtectedRoute roles={['ADMIN', 'PATRON', 'MATRON', 'DOD', 'TEACHER', 'BURSAR', 'SECURITY']}>
                 <SMSNotificationsDashboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/fees/*" element={
+              <ProtectedRoute roles={['ADMIN', 'BURSAR']}>
+                <SchoolFees />
               </ProtectedRoute>
             } />
             <Route path="/settings/*" element={

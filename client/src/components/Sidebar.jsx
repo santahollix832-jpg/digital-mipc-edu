@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import {
-  BookOpenCheck, Bus, CalendarCheck2, ChevronLeft, ChevronRight, LayoutDashboard,
+  BookOpenCheck, Bus, CalendarCheck2, ChevronLeft, ChevronRight, CircleDollarSign, LayoutDashboard,
   LogOut, MessageSquareText, Settings as SettingsIcon, ShieldAlert, Users, X, BellRing,
 } from 'lucide-react';
 import { useAuth } from '../auth/AuthContext';
@@ -16,6 +16,7 @@ const menuItems = [
   { label: 'Discipline', to: '/discipline', icon: ShieldAlert, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD'], tKey: 'discipline' },
   { label: 'Transport Tracking', to: '/transport', icon: Bus, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD', 'SECURITY'], tKey: 'transport' },
   { label: 'SMS Center', to: '/sms', icon: MessageSquareText, roles: ['ADMIN', 'PATRON', 'MATRON', 'DOD', 'TEACHER', 'BURSAR', 'SECURITY'], tKey: 'sms_center' },
+  { label: 'School Fees', to: '/fees', icon: CircleDollarSign, roles: ['ADMIN', 'BURSAR'], tKey: 'school_fees' },
   { label: 'Gate Return Tracking', to: '/gate', icon: ShieldAlert, roles: ['SECURITY', 'ADMIN'], tKey: 'gate' },
   { label: 'Smart Bell', to: '/smart-bell', icon: BellRing, roles: ['ADMIN', 'TEACHER', 'PATRON', 'MATRON', 'DOD', 'SECURITY'], tKey: 'smart_bell' },
 ];
