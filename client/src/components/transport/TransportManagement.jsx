@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  ArrowRightLeft, Bus, CheckCircle2, Home, Loader2, MapPin, RefreshCw,
+  ArrowRightLeft, Bus, CheckCircle2, Home, Loader2, MapPin, RefreshCw, Wallet,
   Search, UserRound, Users, X,
 } from 'lucide-react';
 import { apiFetch } from '../../api/config';
@@ -11,11 +11,25 @@ export const ALLOWED_ROUTES = ['Kigali', 'Rubavu', 'Musanze', 'Parent Pick-Up'];
 const BUS_ROUTES = ALLOWED_ROUTES.filter((r) => r !== 'Parent Pick-Up');
 
 const ROUTE_META = {
-  Kigali: { icon: Bus, tone: 'bg-sky-50 text-sky-700 border-sky-200', dot: 'bg-sky-500' },
-  Rubavu: { icon: Bus, tone: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500' },
-  Musanze: { icon: MapPin, tone: 'bg-violet-50 text-violet-700 border-violet-200', dot: 'bg-violet-500' },
-  'Parent Pick-Up': { icon: Home, tone: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500' },
+  Kigali: { icon: Bus, tone: 'bg-sky-50 text-sky-700 border-sky-200', dot: 'bg-sky-500', fare: 5000 },
+  Rubavu: { icon: Bus, tone: 'bg-emerald-50 text-emerald-700 border-emerald-200', dot: 'bg-emerald-500', fare: 8000 },
+  Musanze: { icon: MapPin, tone: 'bg-violet-50 text-violet-700 border-violet-200', dot: 'bg-violet-500', fare: 6000 },
+  'Parent Pick-Up': { icon: Home, tone: 'bg-amber-50 text-amber-700 border-amber-200', dot: 'bg-amber-500', fare: 0 },
 };
+
+const PAYMENT_METHODS = ['Cash', 'Bank Transfer', 'Mobile Money', 'Cheque', 'Card'];
+
+const formatRwf = (n) => `RWF ${Number(n || 0).toLocaleString()}`;
+
+// Status is derived from amount_paid vs the route fare.
+const fareStatusFor = (fare, paid) => {
+  if (fare <= 0) return paid > 0 ? 'Fully Paid' : 'Unpaid';
+  if (paid >= fare) return 'Fully Paid';
+  if (paid > 0) return 'Partial Payment';
+  return 'Unpaid';
+};
+
+const emptyPaymentForm = { amount_paid: '', payment_method: 'Cash', reference_no: '', payment_date: '' };
 
 const PAYMENT_BADGE = {
   'Fully Paid': 'bg-emerald-50 text-emerald-700 border-emerald-200',
@@ -77,6 +91,12 @@ function TransportManagement({ user }) {
   const [showAddBus, setShowAddBus] = useState(false);
   const [busForm, setBusForm] = useState(emptyBusForm);
   const [savingBus, setSavingBus] = useState(false);
+  const [fares, setFares] = useState({});
+
+  // Fare payment modal
+  const [paymentStudent, setPaymentStudent] = useState(null);
+  const [paymentForm, setPaymentForm] = useState(emptyPaymentForm);
+  const [savingPayment, setSavingPayment] = useState(false);
 
   // Transfer modal
   const [transferStudent, setTransferStudent] = useState(null);
@@ -121,6 +141,24 @@ function TransportManagement({ user }) {
   useEffect(() => { loadBuses(); }, [loadBuses]);
   useEffect(() => { loadStudents(); }, [loadStudents]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const loadFares = useCallback(async () => {
+    try {
+      const response = await apiFetch('/transport/fares');
+      if (!response.ok) return;
+      const payload = await response.json();
+      const map = {};
+      for (const r of payload.routes || []) map[r.name] = Number(r.fare_amount) || 0;
+      setFares(map);
+    } catch { /* fall back to defaults */ }
+  }, []);
+
+  useEffect(() => { loadFares(); }, [loadFares]);
+
+  const fareFor = useCallback(
+    (route) => (fares[route] !== undefined ? fares[route] : ROUTE_META[route]?.fare ?? 0),
+    [fares],
+  );
+
   const countFor = useCallback((route) => counts.find((c) => c.route === route)?.total || 0, [counts]);
 
   const openTransfer = (student) => {
@@ -147,6 +185,39 @@ function TransportManagement({ user }) {
       notify(err.message, 'error');
     } finally {
       setTransferring(false);
+    }
+  };
+
+  const openPayment = (student) => {
+    setPaymentStudent(student);
+    setPaymentForm(emptyPaymentForm);
+  };
+
+  const confirmPayment = async (e) => {
+    e.preventDefault();
+    if (!paymentStudent) return;
+    setSavingPayment(true);
+    try {
+      const response = await apiFetch('/transport/payments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          student_id: paymentStudent.id,
+          amount_paid: Number(paymentForm.amount_paid || 0),
+          payment_method: paymentForm.payment_method,
+          reference_no: paymentForm.reference_no || undefined,
+          payment_date: paymentForm.payment_date || undefined,
+        }),
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(payload.error || 'Failed to record payment.');
+      notify(`Payment recorded — ${payload.payment?.payment_status} (balance RWF ${payload.payment?.balance}).`, 'success');
+      setPaymentStudent(null);
+      loadStudents({ silent: true });
+    } catch (err) {
+      notify(err.message, 'error');
+    } finally {
+      setSavingPayment(false);
     }
   };
 
@@ -227,7 +298,7 @@ function TransportManagement({ user }) {
                   <span className={`h-2 w-2 rounded-full ${meta.dot}`} /> {countFor(route)}
                 </span>
               </div>
-              <p className="mt-2 text-xs text-slate-500">{route === 'Parent Pick-Up' ? 'Day students collected by guardians' : 'Boarding students on this bus route'}</p>
+              <p className="mt-2 text-xs text-slate-500">{route === 'Parent Pick-Up' ? 'Day students collected by guardians' : `Boarding students on this bus route · fare ${formatRwf(fareFor(route))}`}</p>
             </button>
           );
         })}
@@ -285,34 +356,51 @@ function TransportManagement({ user }) {
                   {list.length === 0 && (
                     <p className="p-6 text-center text-sm text-slate-400">No students assigned to this route.</p>
                   )}
-                  {list.map((s) => (
-                    <div key={s.id} className="flex items-center justify-between gap-3 px-4 py-3 transition hover:bg-slate-50">
-                      <div className="min-w-0">
-                        <p className="flex items-center gap-2 truncate text-sm font-semibold text-slate-900">
-                          <UserRound size={14} className="shrink-0 text-slate-400" /> {s.name}
-                        </p>
-                        <p className="mt-0.5 truncate text-xs text-slate-500">
-                          {s.reg_number} · {s.class_name || '—'} · {s.status || 'Active'}
-                          {s.route !== 'Parent Pick-Up' && (
-                            <span className={`ml-2 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${PAYMENT_BADGE[s.payment_status] || PAYMENT_BADGE.Unpaid}`}>
-                              {s.payment_status}
-                            </span>
-                          )}
-                        </p>
+                  {list.map((s) => {
+                    const fare = fareFor(s.route);
+                    const paid = Number(s.amount_paid || 0);
+                    const computedStatus = fareStatusFor(fare, paid);
+                    return (
+                      <div key={s.id} className="flex items-center justify-between gap-3 px-4 py-3 transition hover:bg-slate-50">
+                        <div className="min-w-0">
+                          <p className="flex items-center gap-2 truncate text-sm font-semibold text-slate-900">
+                            <UserRound size={14} className="shrink-0 text-slate-400" /> {s.name}
+                          </p>
+                          <p className="mt-0.5 truncate text-xs text-slate-500">
+                            {s.reg_number} · {s.class_name || '—'} · {s.status || 'Active'}
+                            {s.route !== 'Parent Pick-Up' && (
+                              <span className={`ml-2 rounded-full border px-2 py-0.5 text-[10px] font-semibold ${PAYMENT_BADGE[computedStatus] || PAYMENT_BADGE.Unpaid}`}>
+                                {computedStatus}
+                              </span>
+                            )}
+                          </p>
+                          <p className="mt-0.5 truncate text-[11px] text-slate-400">
+                            Fare {formatRwf(fare)} · Paid {formatRwf(paid)}{fare - paid > 0 ? ` · Balance ${formatRwf(fare - paid)}` : ''}
+                          </p>
+                        </div>
+                        {canManage ? (
+                          <div className="flex shrink-0 items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() => openPayment(s)}
+                              className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-700 transition hover:bg-emerald-100"
+                            >
+                              <Wallet size={13} /> Record Fare Payment
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => openTransfer(s)}
+                              className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-100"
+                            >
+                              <ArrowRightLeft size={13} /> Transfer
+                            </button>
+                          </div>
+                        ) : (
+                          <span className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold ${meta.tone}`}>{s.route}</span>
+                        )}
                       </div>
-                      {canManage ? (
-                        <button
-                          type="button"
-                          onClick={() => openTransfer(s)}
-                          className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-1.5 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-100"
-                        >
-                          <ArrowRightLeft size={13} /> Transfer
-                        </button>
-                      ) : (
-                        <span className={`shrink-0 rounded-full border px-2.5 py-0.5 text-[10px] font-semibold ${meta.tone}`}>{s.route}</span>
-                      )}
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               </div>
             );
@@ -423,6 +511,77 @@ function TransportManagement({ user }) {
               </button>
             </div>
           </>
+        )}
+      </Modal>
+
+      {/* Record fare payment modal */}
+      <Modal open={Boolean(paymentStudent)} title="Record Fare Payment" icon={Wallet} onClose={() => setPaymentStudent(null)}>
+        {paymentStudent && (
+          <form onSubmit={confirmPayment} className="space-y-4">
+            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+              <p className="font-bold text-slate-900">{paymentStudent.name}</p>
+              <p className="text-sm text-slate-500">{paymentStudent.reg_number} · {paymentStudent.class_name || '—'} · {paymentStudent.route}</p>
+              <p className="mt-2 text-sm text-slate-700">
+                Route fare: <strong>{formatRwf(fareFor(paymentStudent.route))}</strong>
+                {' · '}Paid so far: <strong>{formatRwf(Number(paymentStudent.amount_paid || 0))}</strong>
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-sm font-medium text-slate-700">Amount paid (RWF)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="any"
+                  required
+                  value={paymentForm.amount_paid}
+                  onChange={(e) => setPaymentForm({ ...paymentForm, amount_paid: e.target.value })}
+                  placeholder={String(fareFor(paymentStudent.route) || 0)}
+                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 outline-none focus:border-indigo-400"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-slate-700">Payment method</label>
+                <select
+                  value={paymentForm.payment_method}
+                  onChange={(e) => setPaymentForm({ ...paymentForm, payment_method: e.target.value })}
+                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400"
+                >
+                  {PAYMENT_METHODS.map((m) => <option key={m} value={m}>{m}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="text-sm font-medium text-slate-700">Reference no. (optional)</label>
+                <input
+                  value={paymentForm.reference_no}
+                  onChange={(e) => setPaymentForm({ ...paymentForm, reference_no: e.target.value })}
+                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400"
+                />
+              </div>
+              <div>
+                <label className="text-sm font-medium text-slate-700">Payment date</label>
+                <input
+                  type="date"
+                  value={paymentForm.payment_date}
+                  onChange={(e) => setPaymentForm({ ...paymentForm, payment_date: e.target.value })}
+                  className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400"
+                />
+              </div>
+            </div>
+            <p className="text-xs text-slate-500">Status is calculated automatically: Fully Paid when the amount paid covers the route fare.</p>
+            <div className="flex gap-3">
+              <button type="button" onClick={() => setPaymentStudent(null)} className="flex-1 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-100">
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={savingPayment}
+                className="flex-1 rounded-2xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-500/30 transition hover:bg-emerald-700 disabled:opacity-60"
+              >
+                {savingPayment ? <Loader2 size={16} className="mx-auto animate-spin" /> : 'Save Payment'}
+              </button>
+            </div>
+          </form>
         )}
       </Modal>
 

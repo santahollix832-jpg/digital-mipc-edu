@@ -201,32 +201,58 @@ router.get('/overview', async (req, res) => {
     }
     const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
 
-    // 1. Students (+ per-student paid totals aggregated from the payments table
-    //    grouped by student_id, so PAID always reflects SUM of all payments).
-    const paidByStudent = new Map();
-    const paidAgg = (await pool.query(
-      `SELECT student_id, COALESCE(SUM(${amountCol}), 0)::NUMERIC AS total_paid
-       FROM ${paymentsTable}
-       GROUP BY student_id`
-    )).rows;
-    for (const p of paidAgg) paidByStudent.set(Number(p.student_id), money(p.total_paid));
+    // Fee structure filter (year/term), shared by the main query and step 2.
+    // The main query's WHERE clause occupies params $1..$N first, so the CTE's
+    // own params are offset after them to avoid numbering collisions.
+    const structureValues = [];
+    const structureWhereTpl = [];
+    if (year) { structureValues.push(String(year)); structureWhereTpl.push(`academic_year = $%d`); }
+    if (term) { structureValues.push(String(term)); structureWhereTpl.push(`term = $%d`); }
+    const structureWhere = structureWhereTpl.length
+      ? structureWhereTpl.map((tpl, i) => tpl.replace('%d', values.length + i + 1)).join(' AND ')
+      : '';
+    const allValues = [...values, ...structureValues];
 
+    // 1. Students + paid totals + balance, all computed in SQL via a LEFT JOIN
+    //    on the payments table aggregated per student, and COALESCE of the fee
+    //    account amount vs the class fee structure.
     const studentRows = (await pool.query(
-      `SELECT s.id AS student_id, s.name AS student_name, s.class, s.reg_number
+      `WITH paid_agg AS (
+         SELECT student_id, COALESCE(SUM(${amountCol}), 0)::NUMERIC AS paid_amount
+         FROM ${paymentsTable}
+         GROUP BY student_id
+       ),
+       required_agg AS (
+         SELECT DISTINCT ON (sa.student_id)
+                sa.student_id, sa.id AS account_id,
+                (sa.agreed_amount - sa.discount_amount)::NUMERIC AS required_amount
+         FROM student_fee_accounts sa
+         JOIN fee_structures f ON f.id = sa.fee_structure_id
+         ${structureWhere.length ? `WHERE ${structureWhere}` : ''}
+         ORDER BY sa.student_id, f.created_at DESC
+       )
+       SELECT s.id AS student_id, s.name AS student_name, s.class, s.reg_number,
+              COALESCE(p.paid_amount, 0)::NUMERIC AS paid_amount,
+              COALESCE(r.required_amount, fs.total_amount, 0)::NUMERIC AS required_amount,
+              r.account_id,
+              GREATEST(COALESCE(r.required_amount, fs.total_amount, 0) - COALESCE(p.paid_amount, 0), 0)::NUMERIC AS balance
        FROM students s
+       LEFT JOIN paid_agg p ON p.student_id = s.id
+       LEFT JOIN required_agg r ON r.student_id = s.id
+       LEFT JOIN LATERAL (
+         SELECT f2.total_amount FROM fee_structures f2
+         WHERE LOWER(TRIM(f2.class_name)) = LOWER(TRIM(s.class))
+         ORDER BY f2.created_at DESC LIMIT 1
+       ) fs ON r.student_id IS NULL
        ${whereSql}
        ORDER BY s.class ASC, s.name ASC`,
-      values
+      allValues
     )).rows;
 
     // 2. Fee structures, optionally narrowed to a year/term.
-    const structureValues = [];
-    const structureWhere = [];
-    if (year) { structureValues.push(String(year)); structureWhere.push(`academic_year = $${structureValues.length}`); }
-    if (term) { structureValues.push(String(term)); structureWhere.push(`term = $${structureValues.length}`); }
     const structureRows = (await pool.query(
       `SELECT id, class_name, total_amount FROM fee_structures
-       ${structureWhere.length ? `WHERE ${structureWhere.join(' AND ')}` : ''}
+       ${structureWhere.length ? `WHERE ${structureWhere}` : ''}
        ORDER BY created_at DESC`,
       structureValues
     )).rows;
@@ -252,18 +278,24 @@ router.get('/overview', async (req, res) => {
       }
     }
 
-    // 4. Assemble per-student rows.
+    // 4. Assemble per-student rows. paid_amount / required_amount / balance all
+    //    come straight from the SQL LEFT JOIN aggregation above.
     const students = studentRows.map((r) => {
-      const required = money(accountByStudent.get(r.student_id) ?? structureByClass.get(r.class) ?? 0);
-      const paid = money(paidByStudent.get(Number(r.student_id)) ?? 0);
+      const required = money(r.required_amount);
+      const paid = money(r.paid_amount);
+      const balance = money(Math.max(required - paid, 0));
       return {
         student_id: r.student_id,
         student_name: r.student_name,
         class: r.class,
         reg_number: r.reg_number,
+        fee_account_id: r.account_id ?? null,
+        required_amount: required,
         total_required: required,
+        paid_amount: paid,
+        amount_paid: paid,
         total_paid: paid,
-        balance: money(Math.max(required - paid, 0)),
+        balance,
         status: calcStatus(paid, required),
       };
     });

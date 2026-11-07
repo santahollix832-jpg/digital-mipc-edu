@@ -570,7 +570,7 @@ app.use('/api/attendance', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD'), att
 
 // Musanze Hub transport logistics: ADMIN manages; PATRON/MATRON/DOD view manifests & parent pick-up;
 // SECURITY performs the boarding call-up check-off.
-app.use('/api/transport', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD', 'SECURITY'), transportRouter);
+app.use('/api/transport', requireRoles('ADMIN', 'PATRON', 'MATRON', 'DOD', 'SECURITY', 'BURSAR'), transportRouter);
 
 // SMS & Notifications Center: every staff role can view logs; all listed staff
 // roles may trigger automated notifications, announcements and staff broadcasts.

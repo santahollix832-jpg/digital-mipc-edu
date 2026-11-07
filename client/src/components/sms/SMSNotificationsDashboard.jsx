@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+﻿import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  AlertTriangle, BellRing, Bus, CheckCircle2, ClipboardList, Clock, Filter, Loader2, Megaphone,
-  MessageSquare, RefreshCw, Search, Send, Smartphone, Trash2, Users, X,
+  AlertTriangle, BellRing, CheckCircle2, Clock, Filter, Loader2, Megaphone,
+  MessageSquare, RefreshCw, Search, Send, Users, X,
 } from 'lucide-react';
 import { apiFetch } from '../../api/config';
 import { useToast } from '../ToastProvider';
@@ -105,14 +105,10 @@ function SMSNotificationsDashboard({ user }) {
   const [showCompose, setShowCompose] = useState(false);
   const [showAnnouncement, setShowAnnouncement] = useState(false);
   const [showBroadcast, setShowBroadcast] = useState(false);
-  const [showGatePass, setShowGatePass] = useState(false);
-  const [showCheck, setShowCheck] = useState(false);
 
   const [composeForm, setComposeForm] = useState({ recipient_name: '', phone: '', message: '', student_id: '', notification_type: 'ANNOUNCEMENT' });
   const [announceForm, setAnnounceForm] = useState({ title: '', message_body: '', audience: 'everyone', dispatch_sms: true });
   const [broadcastForm, setBroadcastForm] = useState({ title: '', message_body: '', target_roles: [] });
-  const [gatePassForm, setGatePassForm] = useState({ student_name: '', destination: '', expected_return: '' });
-  const [checkForm, setCheckForm] = useState({ student_name: '', direction: 'in', method: 'qr' });
   const [students, setStudents] = useState([]);
 
   const loadLogs = useCallback(async () => {
@@ -215,44 +211,6 @@ function SMSNotificationsDashboard({ user }) {
     } finally { setSending(false); }
   };
 
-  const handleGatePass = async (e) => {
-    e.preventDefault();
-    setSending(true);
-    try {
-      const student = foundStudent(gatePassForm.student_name);
-      const result = await post('/sms/trigger/gate-pass', {
-        student_id: student?.id,
-        destination: gatePassForm.destination,
-        expected_return: gatePassForm.expected_return || null,
-      });
-      notify(`Gate pass notification ${result.status === 'SENT' ? 'sent' : result.status === 'LOGGED_ONLY' ? 'logged (no live gateway)' : 'failed'} — ${result.message?.recipient_name || 'guardian'}.`, result.status === 'FAILED' ? 'error' : 'success');
-      setShowGatePass(false);
-      setGatePassForm({ student_name: '', destination: '', expected_return: '' });
-      loadLogs();
-    } catch (err) {
-      notify(err.message, 'error');
-    } finally { setSending(false); }
-  };
-
-  const handleCheck = async (e) => {
-    e.preventDefault();
-    setSending(true);
-    try {
-      const student = foundStudent(checkForm.student_name);
-      const result = await post('/sms/trigger/check', {
-        student_id: student?.id,
-        direction: checkForm.direction,
-        method: checkForm.method,
-      });
-      notify(`Check-${checkForm.direction} notification ${result.status === 'SENT' ? 'sent' : result.status === 'LOGGED_ONLY' ? 'logged (no live gateway)' : 'failed'}.`, result.status === 'FAILED' ? 'error' : 'success');
-      setShowCheck(false);
-      setCheckForm({ student_name: '', direction: 'in', method: 'qr' });
-      loadLogs();
-    } catch (err) {
-      notify(err.message, 'error');
-    } finally { setSending(false); }
-  };
-
   const retractAnnouncement = async (id) => {
     setBusyId(id);
     try {
@@ -287,12 +245,6 @@ function SMSNotificationsDashboard({ user }) {
           </button>
           <button type="button" onClick={() => setShowBroadcast(true)} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
             <Users size={16} /> Staff Broadcast
-          </button>
-          <button type="button" onClick={() => setShowGatePass(true)} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
-            <ClipboardList size={16} /> Gate Pass Alert
-          </button>
-          <button type="button" onClick={() => setShowCheck(true)} className="inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50">
-            <Smartphone size={16} /> Check In/Out
           </button>
         </div>
       </header>
@@ -364,7 +316,7 @@ function SMSNotificationsDashboard({ user }) {
                     <span className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-[11px] font-semibold ${STATUS_BADGE[log.status] || STATUS_BADGE.LOGGED_ONLY}`}>
                       {log.status === 'SENT' ? <CheckCircle2 size={11} /> : <Clock size={11} />} {log.status === 'LOGGED_ONLY' ? 'logged' : log.status.toLowerCase()}
                     </span>
-                    <span className="text-xs font-medium text-slate-500">To: {log.recipient_name || log.recipient_phone || '—'} ({log.recipient_role}){log.recipient_phone ? ` · ${log.recipient_phone}` : ''}</span>
+                    <span className="text-xs font-medium text-slate-500">To: {log.recipient_name || log.recipient_phone || '—'} ({log.recipient_role}){log.recipient_phone ? ` Â· ${log.recipient_phone}` : ''}</span>
                   </div>
                   <p className="mt-1.5 line-clamp-2 text-sm text-slate-800">{log.message_body}</p>
                   {log.student_name && <p className="mt-1 text-xs text-slate-400">Student: {log.student_name} ({log.reg_number})</p>}
@@ -405,7 +357,7 @@ function SMSNotificationsDashboard({ user }) {
               </div>
               <p className="mt-2 text-sm text-slate-600">{a.message_body}</p>
               <p className="mt-3 text-xs text-slate-400">
-                {new Date(a.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} · by {a.created_by_name || a.sent_by_name || 'system'}
+                {new Date(a.created_at).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })} Â· by {a.created_by_name || a.sent_by_name || 'system'}
               </p>
             </article>
           ))}
@@ -417,15 +369,15 @@ function SMSNotificationsDashboard({ user }) {
         <form onSubmit={handleCompose} className="space-y-4">
           <div>
             <label className="text-sm font-medium text-slate-700">Recipient name</label>
-            <input required value={composeForm.recipient_name} onChange={(e) => setComposeForm({ ...composeForm, recipient_name: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:bg-white" />
+            <input required value={composeForm.recipient_name} onChange={(e) => setComposeForm({ ...composeForm, recipient_name: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400" />
           </div>
           <div>
             <label className="text-sm font-medium text-slate-700">Phone (optional)</label>
-            <input value={composeForm.phone} onChange={(e) => setComposeForm({ ...composeForm, phone: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:bg-white" />
+            <input value={composeForm.phone} onChange={(e) => setComposeForm({ ...composeForm, phone: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400" />
           </div>
           <div>
             <label className="text-sm font-medium text-slate-700">Message</label>
-            <textarea required rows={4} value={composeForm.message} onChange={(e) => setComposeForm({ ...composeForm, message: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:bg-white" />
+            <textarea required rows={4} spellCheck="true" autoCorrect="on" value={composeForm.message} onChange={(e) => setComposeForm({ ...composeForm, message: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400" />
           </div>
           <button type="submit" disabled={sending} className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:bg-indigo-700 disabled:opacity-60">
             {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} {sending ? 'Sending…' : 'Send & Log'}
@@ -438,16 +390,16 @@ function SMSNotificationsDashboard({ user }) {
         <form onSubmit={handleAnnouncement} className="space-y-4">
           <div>
             <label className="text-sm font-medium text-slate-700">Title</label>
-            <input required value={announceForm.title} onChange={(e) => setAnnounceForm({ ...announceForm, title: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:bg-white" />
+            <input required value={announceForm.title} onChange={(e) => setAnnounceForm({ ...announceForm, title: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400" />
           </div>
           <div>
             <label className="text-sm font-medium text-slate-700">Message body</label>
-            <textarea required rows={4} value={announceForm.message_body} onChange={(e) => setAnnounceForm({ ...announceForm, message_body: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:bg-white" />
+            <textarea required rows={4} spellCheck="true" autoCorrect="on" value={announceForm.message_body} onChange={(e) => setAnnounceForm({ ...announceForm, message_body: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400" />
           </div>
           <div className="flex items-center justify-between gap-4">
             <div>
               <label className="text-sm font-medium text-slate-700">Audience</label>
-              <select value={announceForm.audience} onChange={(e) => setAnnounceForm({ ...announceForm, audience: e.target.value })} className="mt-1 block rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:bg-white">
+              <select value={announceForm.audience} onChange={(e) => setAnnounceForm({ ...announceForm, audience: e.target.value })} className="mt-1 block rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400">
                 <option value="everyone">Everyone (staff + parents)</option>
                 <option value="parents">Parents only (SMS)</option>
                 <option value="staff">Staff only (internal)</option>
@@ -470,11 +422,11 @@ function SMSNotificationsDashboard({ user }) {
           <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs text-amber-800">Internal memo — delivered strictly among staff members, never to parents.</p>
           <div>
             <label className="text-sm font-medium text-slate-700">Title</label>
-            <input required value={broadcastForm.title} onChange={(e) => setBroadcastForm({ ...broadcastForm, title: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:bg-white" />
+            <input required value={broadcastForm.title} onChange={(e) => setBroadcastForm({ ...broadcastForm, title: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400" />
           </div>
           <div>
             <label className="text-sm font-medium text-slate-700">Message</label>
-            <textarea required rows={4} value={broadcastForm.message_body} onChange={(e) => setBroadcastForm({ ...broadcastForm, message_body: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:bg-white" />
+            <textarea required rows={4} spellCheck="true" autoCorrect="on" value={broadcastForm.message_body} onChange={(e) => setBroadcastForm({ ...broadcastForm, message_body: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-indigo-400" />
           </div>
           <div>
             <p className="text-sm font-medium text-slate-700">Target roles (none selected = all staff)</p>
@@ -499,60 +451,6 @@ function SMSNotificationsDashboard({ user }) {
           </div>
           <button type="submit" disabled={sending} className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60">
             {sending ? <Loader2 size={16} className="animate-spin" /> : <Users size={16} />} {sending ? 'Broadcasting…' : 'Broadcast to Staff'}
-          </button>
-        </form>
-      </Modal>
-
-      {/* Gate pass trigger */}
-      <Modal open={showGatePass} title="Visite Day / Gate Pass Notification" icon={ClipboardList} onClose={() => setShowGatePass(false)}>
-        <form onSubmit={handleGatePass} className="space-y-4">
-          <div>
-            <label className="text-sm font-medium text-slate-700">Student name</label>
-            <input required list="sms-students" value={gatePassForm.student_name} onChange={(e) => setGatePassForm({ ...gatePassForm, student_name: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:bg-white" />
-            <datalist id="sms-students">{students.map((s) => <option key={s.id} value={s.name} />)}</datalist>
-          </div>
-          <div>
-            <label className="text-sm font-medium text-slate-700">Destination</label>
-            <input required value={gatePassForm.destination} onChange={(e) => setGatePassForm({ ...gatePassForm, destination: e.target.value })} placeholder="e.g. Musanze town, Kigali home visit" className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:bg-white" />
-          </div>
-          <div>
-            <label className="text-sm font-medium text-slate-700">Expected return</label>
-            <input type="datetime-local" value={gatePassForm.expected_return} onChange={(e) => setGatePassForm({ ...gatePassForm, expected_return: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:bg-white" />
-          </div>
-          <p className="text-xs text-slate-500">An SMS including destination and return details is sent to the guardian on file.</p>
-          <button type="submit" disabled={sending} className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:bg-indigo-700 disabled:opacity-60">
-            {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} {sending ? 'Notifying…' : 'Notify Guardian'}
-          </button>
-        </form>
-      </Modal>
-
-      {/* Check-in / out trigger */}
-      <Modal open={showCheck} title="Check-In / Check-Out Notification" icon={Smartphone} onClose={() => setShowCheck(false)}>
-        <form onSubmit={handleCheck} className="space-y-4">
-          <div>
-            <label className="text-sm font-medium text-slate-700">Student name</label>
-            <input required list="sms-students" value={checkForm.student_name} onChange={(e) => setCheckForm({ ...checkForm, student_name: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:bg-white" />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-sm font-medium text-slate-700">Direction</label>
-              <select value={checkForm.direction} onChange={(e) => setCheckForm({ ...checkForm, direction: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:bg-white">
-                <option value="in">Check-In</option>
-                <option value="out">Check-Out</option>
-              </select>
-            </div>
-            <div>
-              <label className="text-sm font-medium text-slate-700">Scan method</label>
-              <select value={checkForm.method} onChange={(e) => setCheckForm({ ...checkForm, method: e.target.value })} className="mt-1 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2.5 text-sm outline-none focus:border-indigo-400 focus:bg-white">
-                <option value="qr">QR scan</option>
-                <option value="nfc">NFC scan</option>
-                <option value="manual">Manual / attendance update</option>
-              </select>
-            </div>
-          </div>
-          <p className="text-xs text-slate-500">Works for both day scholars and boarders; works alongside gate scans or attendance updates.</p>
-          <button type="submit" disabled={sending} className="flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-500/30 transition hover:bg-indigo-700 disabled:opacity-60">
-            {sending ? <Loader2 size={16} className="animate-spin" /> : <Send size={16} />} {sending ? 'Triggering…' : 'Trigger Notification'}
           </button>
         </form>
       </Modal>
